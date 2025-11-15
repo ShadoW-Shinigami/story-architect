@@ -71,3 +71,10 @@ Thumbs.db
 
 # Claude Code
 .claude/
+*-caveat-*.txt
+
+# Export Files (Large outputs)
+*_export.zip
+*_notion.zip
+*_complete_export.zip
+exports/

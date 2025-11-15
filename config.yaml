@@ -55,6 +55,57 @@ agents:
     prompt_file: "prompts/agent_4_prompt.txt"
     output_format: "json"
 
+  # Phase 2: Image Generation Agents
+  agent_5:
+    name: "Character Creator"
+    enabled: true
+    temperature: 0.6
+    model: "gemini-2.5-flash-image"
+    aspect_ratio: "1:1"
+    image_size: "2K"
+    grid_aspect_ratio: "16:9"
+    prompt_file: "prompts/agent_5_prompt.txt"
+
+  agent_6:
+    name: "Parent Image Generator"
+    enabled: true
+    temperature: 0.7
+    model: "gemini-2.5-flash-image"
+    aspect_ratio: "16:9"
+    image_size: "2K"
+    max_retries: 3
+    prompt_file: "prompts/agent_6_prompt.txt"
+
+  agent_7:
+    name: "Parent Verification"
+    enabled: true
+    temperature: 0.3
+    verification_model: "gemini-2.5-pro"
+    max_retries: 3
+    confidence_threshold: 0.7
+    soft_failure_mode: true
+    prompt_file: "prompts/agent_7_prompt.txt"
+
+  agent_8:
+    name: "Child Image Generator"
+    enabled: true
+    temperature: 0.7
+    model: "gemini-2.5-flash-image"
+    aspect_ratio: "16:9"
+    max_retries: 3
+    prompt_file: "prompts/agent_8_prompt.txt"
+
+  agent_9:
+    name: "Child Verification"
+    enabled: true
+    temperature: 0.3
+    verification_model: "gemini-2.5-pro"
+    max_retries: 3
+    confidence_threshold: 0.7
+    consistency_threshold: 0.6
+    soft_failure_mode: true
+    prompt_file: "prompts/agent_9_prompt.txt"
+
 # Output Settings
 output:
   base_directory: "outputs/projects"

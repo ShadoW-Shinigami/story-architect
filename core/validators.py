@@ -149,6 +149,88 @@ class ShotGrouping(BaseModel):
     )
 
 
+# ==================== Phase 2: Image Generation ====================
+
+class CharacterData(BaseModel):
+    """Generated character image data."""
+    name: str = Field(..., description="Character name")
+    description: str = Field(..., description="Visual description used for generation")
+    image_path: str = Field(..., description="Relative path to character image")
+    generation_timestamp: str = Field(..., description="When the image was generated")
+
+
+class CharacterGrid(BaseModel):
+    """Character combination grid for shot reference."""
+    grid_id: str = Field(..., description="Unique grid identifier")
+    characters: List[str] = Field(..., description="Character names in this grid")
+    grid_path: str = Field(..., description="Relative path to grid image")
+    generation_timestamp: str = Field(..., description="When the grid was generated")
+
+
+class CharacterCreationOutput(BaseModel):
+    """Complete output from Agent 5."""
+    characters: List[CharacterData] = Field(..., description="All generated characters")
+    character_grids: List[CharacterGrid] = Field(..., description="Character combination grids")
+    total_characters: int = Field(..., description="Total number of characters")
+    total_grids: int = Field(..., description="Total number of grids created")
+    metadata: Optional[Dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Additional metadata"
+    )
+
+
+class VerificationResult(BaseModel):
+    """Image verification result."""
+    approved: bool = Field(..., description="Whether image is approved")
+    confidence: float = Field(..., description="Confidence score (0.0-1.0)")
+    issues: List[str] = Field(default_factory=list, description="List of issues found")
+    recommendation: Literal["approve", "regenerate", "manual_review"] = Field(
+        ...,
+        description="Recommended action"
+    )
+
+
+class GeneratedShotImage(BaseModel):
+    """Generated image for a shot."""
+    shot_id: str = Field(..., description="Shot identifier")
+    scene_id: str = Field(..., description="Scene identifier")
+    image_path: str = Field(..., description="Relative path to generated image")
+    generation_timestamp: str = Field(..., description="Generation timestamp")
+    verification_status: Literal["pending", "verified", "soft_failure"] = Field(
+        ...,
+        description="Verification status"
+    )
+    attempts: int = Field(default=1, description="Number of generation attempts")
+    final_verification: Optional[VerificationResult] = Field(
+        None,
+        description="Final verification result"
+    )
+    verification_history: List[VerificationResult] = Field(
+        default_factory=list,
+        description="History of all verification attempts"
+    )
+
+
+class ParentShotsOutput(BaseModel):
+    """Complete output from Agent 6."""
+    parent_shots: List[GeneratedShotImage] = Field(..., description="All parent shot images")
+    total_parent_shots: int = Field(..., description="Total number of parent shots")
+    metadata: Optional[Dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Additional metadata"
+    )
+
+
+class ChildShotsOutput(BaseModel):
+    """Complete output from Agent 8."""
+    child_shots: List[GeneratedShotImage] = Field(..., description="All child shot images")
+    total_child_shots: int = Field(..., description="Total number of child shots")
+    metadata: Optional[Dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Additional metadata"
+    )
+
+
 # ==================== Session Management ====================
 
 class AgentOutput(BaseModel):

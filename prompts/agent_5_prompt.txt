@@ -1,0 +1,28 @@
+# Agent 5: Character Creator
+
+This agent generates character images programmatically using Gemini 2.5 Flash Image.
+The prompt is constructed in code at agents/agent_5_character.py
+
+The agent:
+1. Extracts characters from Agent 2 scene breakdown
+2. Generates 1024x1024 portrait images for each character
+3. Analyzes Agent 3 to find needed character combinations (max 3-4 per shot)
+4. Creates 16:9 character grids only for combinations that appear in shots
+
+Character Generation Prompt Pattern:
+---
+Generate a high-quality character portrait for:
+
+Character Name: {name}
+Physical Description: {description}
+
+Style Requirements:
+- Professional character design
+- Clean, neutral background
+- Studio lighting
+- Cinematic quality
+- Front-facing portrait
+- Consistent design for video generation reference
+---
+
+Note: This is a code-driven agent, not prompt-template driven.

@@ -21,3 +21,6 @@ pytest-asyncio>=0.21.0
 
 # Optional: For advanced JSON handling
 jsonschema>=4.19.0
+
+# Phase 2: Image Generation
+Pillow>=10.0.0  # Image manipulation for character grids

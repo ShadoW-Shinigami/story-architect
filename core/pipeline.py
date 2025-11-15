@@ -15,6 +15,12 @@ from agents.agent_1_screenplay import ScreenplayAgent
 from agents.agent_2_scene_breakdown import SceneBreakdownAgent
 from agents.agent_3_shot_breakdown import ShotBreakdownAgent
 from agents.agent_4_grouping import ShotGroupingAgent
+# Phase 2: Image Generation Agents
+from agents.agent_5_character import CharacterCreatorAgent
+from agents.agent_6_parent_generator import ParentImageGeneratorAgent
+from agents.agent_7_parent_verification import ParentVerificationAgent
+from agents.agent_8_child_generator import ChildImageGeneratorAgent
+from agents.agent_9_child_verification import ChildVerificationAgent
 
 
 class Pipeline:
@@ -61,9 +67,14 @@ class Pipeline:
         self.agents = self._initialize_agents()
 
         # Agent execution order
-        self.agent_order = ["agent_1", "agent_2", "agent_3", "agent_4"]
+        # Phase 1: Script to shot breakdown
+        # Phase 2: Image generation (agents 5-9)
+        self.agent_order = [
+            "agent_1", "agent_2", "agent_3", "agent_4",  # Phase 1
+            "agent_5", "agent_6", "agent_7", "agent_8", "agent_9"  # Phase 2
+        ]
 
-        logger.info("Pipeline initialized successfully")
+        logger.info("Pipeline initialized successfully (Phase 1 + Phase 2)")
 
     def _load_config(self, config_path: str) -> Dict[str, Any]:
         """Load configuration from YAML file."""
@@ -110,8 +121,70 @@ class Pipeline:
                 self.config["agents"]["agent_4"]
             )
 
-        logger.info(f"Initialized {len(agents)} agents")
+        # Phase 2 agents are initialized per-session (need session_dir)
+        # They're created on-demand in _get_phase2_agent()
+
+        logger.info(f"Initialized {len(agents)} Phase 1 agents")
         return agents
+
+    def _get_phase2_agent(self, agent_name: str, session: SessionState):
+        """
+        Initialize Phase 2 agent on-demand with session directory.
+
+        Args:
+            agent_name: Agent name (agent_5 through agent_9)
+            session: Current session state
+
+        Returns:
+            Initialized Phase 2 agent
+        """
+        if agent_name not in self.agent_order:
+            raise ValueError(f"Unknown agent: {agent_name}")
+
+        if agent_name not in ["agent_5", "agent_6", "agent_7", "agent_8", "agent_9"]:
+            raise ValueError(f"{agent_name} is not a Phase 2 agent")
+
+        # Get session directory
+        session_dir = Path(self.config["output"]["base_directory"]) / session.session_id
+
+        # Initialize agent based on name
+        if agent_name == "agent_5" and self.config["agents"]["agent_5"]["enabled"]:
+            return CharacterCreatorAgent(
+                self.gemini_client,
+                self.config["agents"]["agent_5"],
+                session_dir
+            )
+
+        elif agent_name == "agent_6" and self.config["agents"]["agent_6"]["enabled"]:
+            return ParentImageGeneratorAgent(
+                self.gemini_client,
+                self.config["agents"]["agent_6"],
+                session_dir
+            )
+
+        elif agent_name == "agent_7" and self.config["agents"]["agent_7"]["enabled"]:
+            return ParentVerificationAgent(
+                self.gemini_client,
+                self.config["agents"]["agent_7"],
+                session_dir
+            )
+
+        elif agent_name == "agent_8" and self.config["agents"]["agent_8"]["enabled"]:
+            return ChildImageGeneratorAgent(
+                self.gemini_client,
+                self.config["agents"]["agent_8"],
+                session_dir
+            )
+
+        elif agent_name == "agent_9" and self.config["agents"]["agent_9"]["enabled"]:
+            return ChildVerificationAgent(
+                self.gemini_client,
+                self.config["agents"]["agent_9"],
+                session_dir
+            )
+
+        else:
+            raise ValueError(f"Agent {agent_name} is not enabled or not found")
 
     def create_session(
         self,
@@ -159,11 +232,17 @@ class Pipeline:
         Returns:
             Updated session state
         """
-        if agent_name not in self.agents:
-            raise ValueError(f"Agent not found: {agent_name}")
-
-        agent = self.agents[agent_name]
         max_retries = self.config["app"]["max_retries"]
+
+        # Get agent (Phase 1 from cache, Phase 2 created on-demand)
+        if agent_name in ["agent_5", "agent_6", "agent_7", "agent_8", "agent_9"]:
+            # Phase 2 agent - initialize with session directory
+            agent = self._get_phase2_agent(agent_name, session)
+        elif agent_name in self.agents:
+            # Phase 1 agent - use cached instance
+            agent = self.agents[agent_name]
+        else:
+            raise ValueError(f"Agent not found: {agent_name}")
 
         logger.info(f"Running {agent_name}...")
 
@@ -332,6 +411,7 @@ class Pipeline:
     def _get_agent_input(self, session: SessionState, agent_name: str) -> Any:
         """
         Get input data for an agent.
+        Phase 2 agents require data from multiple previous agents.
 
         Args:
             session: Current session state
@@ -344,7 +424,55 @@ class Pipeline:
             # First agent uses original input
             return session.input_data
 
-        # Get output from previous agent
+        # Phase 2 agents have special input requirements
+        if agent_name == "agent_5":
+            # Character Creator needs Agent 2 (scene breakdown) and Agent 3 (shot breakdown)
+            return {
+                "scene_breakdown": self._get_agent_output(session, "agent_2"),
+                "shot_breakdown": self._get_agent_output(session, "agent_3")
+            }
+
+        elif agent_name == "agent_6":
+            # Parent Image Generator needs Agent 2, 3, 4, and 5
+            return {
+                "scene_breakdown": self._get_agent_output(session, "agent_2"),
+                "shot_breakdown": self._get_agent_output(session, "agent_3"),
+                "shot_grouping": self._get_agent_output(session, "agent_4"),
+                "character_grids": self._get_agent_output(session, "agent_5").get("character_grids", [])
+            }
+
+        elif agent_name == "agent_7":
+            # Parent Verification (with regeneration capability) needs same data as Agent 6
+            return {
+                "parent_shots": self._get_agent_output(session, "agent_6").get("parent_shots", []),
+                "scene_breakdown": self._get_agent_output(session, "agent_2"),
+                "shot_breakdown": self._get_agent_output(session, "agent_3"),
+                "shot_grouping": self._get_agent_output(session, "agent_4"),
+                "character_grids": self._get_agent_output(session, "agent_5").get("character_grids", [])
+            }
+
+        elif agent_name == "agent_8":
+            # Child Image Generator needs Agent 2, 3, 4, 5, and verified Agent 7
+            return {
+                "scene_breakdown": self._get_agent_output(session, "agent_2"),
+                "shot_breakdown": self._get_agent_output(session, "agent_3"),
+                "shot_grouping": self._get_agent_output(session, "agent_4"),
+                "parent_shots": self._get_agent_output(session, "agent_7").get("parent_shots", []),
+                "character_grids": self._get_agent_output(session, "agent_5").get("character_grids", [])
+            }
+
+        elif agent_name == "agent_9":
+            # Child Verification (with regeneration capability) needs same data as Agent 8
+            return {
+                "child_shots": self._get_agent_output(session, "agent_8").get("child_shots", []),
+                "parent_shots": self._get_agent_output(session, "agent_7").get("parent_shots", []),
+                "scene_breakdown": self._get_agent_output(session, "agent_2"),
+                "shot_breakdown": self._get_agent_output(session, "agent_3"),
+                "shot_grouping": self._get_agent_output(session, "agent_4"),
+                "character_grids": self._get_agent_output(session, "agent_5").get("character_grids", [])
+            }
+
+        # Phase 1 agents: Get output from previous agent
         agent_idx = self.agent_order.index(agent_name)
         prev_agent = self.agent_order[agent_idx - 1]
 
@@ -361,6 +489,18 @@ class Pipeline:
             )
 
         return prev_output
+
+    def _get_agent_output(self, session: SessionState, agent_name: str) -> Any:
+        """Helper to get agent output with error checking."""
+        if agent_name not in session.agents:
+            raise ValueError(f"Agent {agent_name} has not been executed")
+
+        output = session.agents[agent_name].output_data
+
+        if output is None:
+            raise ValueError(f"Agent {agent_name} produced no output")
+
+        return output
 
     def get_session(self, session_id: str) -> Optional[SessionState]:
         """Load a session by ID."""

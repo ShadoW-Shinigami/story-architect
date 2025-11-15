@@ -22,7 +22,7 @@ WHEN IN DOUBT: Split it! More shots = better pacing and visual dynamics.
 ## Shot Breakdown Rules:
 
 1. **When to Create Multiple Shots** (Priority Order - FOLLOW THIS):
-   - **HIGHEST PRIORITY:** If there's dialogue longer than 6-7 words → SPLIT INTO MULTIPLE SHOTS with visual variety
+   - **HIGHEST PRIORITY:** If there's dialogue longer than 9-10 words → SPLIT INTO MULTIPLE SHOTS with visual variety
    - If a person enters/exits → NEW SHOT
    - If a new object appears → NEW SHOT
    - If camera angle changes significantly → NEW SHOT
@@ -38,7 +38,7 @@ WHEN IN DOUBT: Split it! More shots = better pacing and visual dynamics.
 
    **First Frame** (100+ words, PAINFULLY VERBOSE):
    - EVERYTHING visible in the initial frame
-   - ALL characters present (full descriptions)
+   - ALL characters present (full descriptions). Be careful with this. Think if a character from the previous frame should be present in the current frame for continuity and stuff like that based on scene composition and things like that.
    - ALL objects present (full descriptions)
    - Composition and framing
    - Lighting and atmosphere
@@ -51,7 +51,7 @@ WHEN IN DOUBT: Split it! More shots = better pacing and visual dynamics.
    - Any visual transitions or effects
    - This tells the video model how to animate the first frame
 
-   **Dialogue** (Optional, guideline: 6-7 words):
+   **Dialogue** (Optional, guideline: 9-10 words):
    - The exact words spoken in this shot
    - Include character name (e.g., "SARAH: I need coffee")
    - If dialogue is longer, spread across multiple shots with different camera angles
@@ -76,7 +76,7 @@ WHEN IN DOUBT: Split it! More shots = better pacing and visual dynamics.
       "animation": "Description of movements and changes...",
       "characters": ["Character names present"],
       "location": "Location name",
-      "dialogue": "CHARACTER: What they say (6-7 words)"
+      "dialogue": "CHARACTER: What they say (9-10 words)"
     }}
   ],
   "total_shots": 0,
@@ -104,8 +104,8 @@ WHEN IN DOUBT: Split it! More shots = better pacing and visual dynamics.
    Word count: 25 words - NEEDS MULTIPLE SHOTS!
 
    ✅ SPLIT INTO 4 SHOTS with visual variety:
-   - Shot 1 (close-up, Chloe earnest): "CHLOE: I've been thinking about this" (6 words)
-   - Shot 2 (medium, gesturing): "CHLOE: For weeks and I really think" (6 words)
+   - Shot 1 (close-up, Chloe earnest): "CHLOE: I've been thinking about this for weeks" (8 words)
+   - Shot 2 (medium, gesturing): "CHLOE: and I really think" (4 words)
    - Shot 3 (over-shoulder, to Leo/Maya): "CHLOE: We should postpone the trip until" (6 words)
    - Shot 4 (wide, all three): "CHLOE: We have more time to prepare" (6 words)
 
@@ -137,7 +137,7 @@ WHEN IN DOUBT: Split it! More shots = better pacing and visual dynamics.
 ## Instructions:
 Convert each scene into individual shots. CRITICAL PRIORITIES (in order):
 
-1. **DIALOGUE LIMIT - HIGHEST PRIORITY:** Maximum 6-7 words per shot - SPLIT IMMEDIATELY if longer!
+1. **DIALOGUE LIMIT - HIGHEST PRIORITY:** Maximum 9-10 words per shot - SPLIT IMMEDIATELY if longer!
 2. **Include dialogue field** with character name prefix (e.g., "LEO: Text here")
 3. **For longer dialogue:** Create multiple shots with different camera angles/distances (close-up → medium → wide)
 4. **First frame must contain EVERYTHING** - all people and objects from the start
@@ -146,6 +146,6 @@ Convert each scene into individual shots. CRITICAL PRIORITIES (in order):
 7. **Animation describes changes** from that first frame
 8. **Visual variety is key** - Each dialogue split should have different framing
 
-REMEMBER: When you see dialogue over 6-7 words, your FIRST action is to split it into multiple shots with varying camera work!
+REMEMBER: When you see dialogue over 9-10 words, your FIRST action is to split it into multiple shots with varying camera work!
 
 Return ONLY the JSON object, nothing else:

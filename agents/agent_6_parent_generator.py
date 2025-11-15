@@ -1,0 +1,368 @@
+"""
+Agent 6: Parent Image Generator
+Transforms character grids into full cinematic scenes using Gemini 2.5 Flash Image.
+Uses character grids as PRIMARY INPUT to maintain consistency.
+"""
+
+import json
+from io import BytesIO
+from typing import Any, Dict, List, Optional
+from datetime import datetime
+from pathlib import Path
+from PIL import Image
+from loguru import logger
+from pydantic import ValidationError
+
+from agents.base_agent import BaseAgent
+from core.validators import ParentShotsOutput
+from core.image_utils import save_image_with_metadata
+
+
+class ParentImageGeneratorAgent(BaseAgent):
+    """Agent for generating parent shot images by transforming character grids."""
+
+    def __init__(self, gemini_client, config, session_dir: Path):
+        """Initialize Parent Image Generator Agent."""
+        super().__init__(gemini_client, config, "agent_6")
+        self.session_dir = Path(session_dir)
+        self.assets_dir = self.session_dir / "assets"
+        self.parent_shots_dir = self.assets_dir / "parent_shots"
+        self.grids_dir = self.assets_dir / "grids"
+
+        # Create directory
+        self.parent_shots_dir.mkdir(parents=True, exist_ok=True)
+
+    def validate_input(self, input_data: Any) -> bool:
+        """Validate input data."""
+        if not isinstance(input_data, dict):
+            raise ValueError("Input must be a dictionary")
+
+        required_keys = ["scene_breakdown", "shot_breakdown", "shot_grouping", "character_grids"]
+        for key in required_keys:
+            if key not in input_data:
+                raise ValueError(f"Input must contain '{key}'")
+
+        return True
+
+    def validate_output(self, output_data: Any) -> bool:
+        """Validate output parent shots data."""
+        if not isinstance(output_data, dict):
+            raise ValueError("Output must be a dictionary")
+
+        try:
+            parent_output = ParentShotsOutput(**output_data)
+
+            if parent_output.total_parent_shots == 0:
+                raise ValueError("No parent shots generated")
+
+            # Auto-fix count
+            output_data["total_parent_shots"] = len(parent_output.parent_shots)
+
+            logger.debug(f"{self.agent_name}: Output validation passed")
+            return True
+
+        except ValidationError as e:
+            raise ValueError(f"Parent shots validation failed: {str(e)}")
+
+    def process(self, input_data: Any) -> Dict[str, Any]:
+        """Generate parent shot images."""
+        logger.info(f"{self.agent_name}: Transforming character grids into parent shots...")
+
+        scene_breakdown = input_data["scene_breakdown"]
+        shot_breakdown = input_data["shot_breakdown"]
+        shot_grouping = input_data["shot_grouping"]
+        character_grids = input_data["character_grids"]
+
+        # Create shot lookup
+        shots_by_id = {
+            shot["shot_id"]: shot
+            for shot in shot_breakdown.get("shots", [])
+        }
+
+        # Create grid lookup
+        grids_by_chars = {
+            tuple(sorted(grid["characters"])): grid["grid_path"]
+            for grid in character_grids
+        }
+
+        # Extract parent shots
+        parent_shot_ids = self._extract_parent_shots(shot_grouping)
+        logger.info(f"Found {len(parent_shot_ids)} parent shots to generate")
+
+        # Generate parent images
+        parent_shots_data = []
+
+        for shot_id in parent_shot_ids:
+            try:
+                logger.info(f"Generating parent shot: {shot_id}")
+
+                # Get shot details
+                shot_details = shots_by_id.get(shot_id)
+                if not shot_details:
+                    logger.warning(f"Shot details not found for {shot_id}, skipping")
+                    continue
+
+                # Generate image
+                image_path = self._generate_parent_shot_image(
+                    shot_id,
+                    shot_details,
+                    scene_breakdown,
+                    grids_by_chars
+                )
+
+                # Store data
+                # Try to get relative path, fallback to absolute if fails
+                try:
+                    rel_image_path = str(image_path.relative_to(self.session_dir))
+                except ValueError:
+                    # Fallback to absolute path (cross-drive on Windows)
+                    rel_image_path = str(image_path)
+
+                parent_shots_data.append({
+                    "shot_id": shot_id,
+                    "scene_id": shot_details.get("scene_id"),
+                    "image_path": rel_image_path,
+                    "generation_timestamp": datetime.now().isoformat(),
+                    "verification_status": "pending",
+                    "attempts": 1,
+                    "final_verification": None,
+                    "verification_history": []
+                })
+
+                logger.info(f"✓ Generated parent shot: {shot_id}")
+
+            except Exception as e:
+                logger.error(f"Failed to generate parent shot {shot_id}: {str(e)}")
+                raise
+
+        # Prepare output
+        output = {
+            "parent_shots": parent_shots_data,
+            "total_parent_shots": len(parent_shots_data),
+            "metadata": {
+                "session_id": self.session_dir.name,
+                "generated_at": datetime.now().isoformat()
+            }
+        }
+
+        logger.info(f"{self.agent_name}: Generated {len(parent_shots_data)} parent shots")
+
+        return output
+
+    def _extract_parent_shots(self, shot_grouping: Dict[str, Any]) -> List[str]:
+        """Extract parent shot IDs from grouping."""
+        parent_ids = []
+
+        for parent_shot in shot_grouping.get("parent_shots", []):
+            parent_ids.append(parent_shot["shot_id"])
+
+        return parent_ids
+
+    def _get_character_physical_descriptions(
+        self,
+        character_names: List[str],
+        scene_breakdown: Dict[str, Any]
+    ) -> List[Dict[str, str]]:
+        """
+        Extract full physical descriptions for characters from Agent 2 scene breakdown.
+
+        Args:
+            character_names: List of character names in the shot
+            scene_breakdown: Agent 2 output with verbose character descriptions
+
+        Returns:
+            List of dicts with name and full physical description
+        """
+        descriptions = []
+
+        # Build character lookup from all scenes
+        char_lookup = {}
+        for scene in scene_breakdown.get("scenes", []):
+            for char in scene.get("characters", []):
+                char_name = char.get("name")
+                char_desc = char.get("description", "")
+                if char_name and char_desc:
+                    char_lookup[char_name] = char_desc
+
+        # Get descriptions for requested characters
+        for name in character_names:
+            if name in char_lookup:
+                descriptions.append({
+                    "name": name,
+                    "physical_description": char_lookup[name]
+                })
+            else:
+                logger.warning(f"Physical description not found for character: {name}")
+                descriptions.append({
+                    "name": name,
+                    "physical_description": f"Character named {name}"
+                })
+
+        return descriptions
+
+    def _get_location_full_description(
+        self,
+        location_name: str,
+        scene_id: str,
+        scene_breakdown: Dict[str, Any]
+    ) -> str:
+        """
+        Extract full location description from Agent 2 scene breakdown.
+
+        Args:
+            location_name: Location name
+            scene_id: Scene identifier
+            scene_breakdown: Agent 2 output
+
+        Returns:
+            Full verbose location description
+        """
+        # Try to find the exact scene
+        for scene in scene_breakdown.get("scenes", []):
+            if scene.get("scene_id") == scene_id:
+                location = scene.get("location", {})
+                return location.get("description", location_name)
+
+        # Fallback: search by location name
+        for scene in scene_breakdown.get("scenes", []):
+            location = scene.get("location", {})
+            if location.get("name") == location_name:
+                return location.get("description", location_name)
+
+        logger.warning(f"Full location description not found for: {location_name}")
+        return location_name
+
+    def _generate_parent_shot_image(
+        self,
+        shot_id: str,
+        shot_details: Dict[str, Any],
+        scene_breakdown: Dict[str, Any],
+        grids_by_chars: Dict[tuple, str]
+    ) -> Path:
+        """
+        Transform character grid into full parent shot image.
+        Uses grid as PRIMARY INPUT for character consistency.
+        """
+        from google.genai import types
+
+        # Get shot components
+        first_frame = shot_details.get("first_frame", "")
+        characters = shot_details.get("characters", [])
+        scene_id = shot_details.get("scene_id", "")
+        location_name = shot_details.get("location", "")
+        dialogue = shot_details.get("dialogue", "")
+
+        # Get verbose character descriptions (PHYSICAL TRAITS, not names!)
+        character_descriptions = self._get_character_physical_descriptions(
+            characters,
+            scene_breakdown
+        )
+
+        # Get verbose location description
+        location_description = self._get_location_full_description(
+            location_name,
+            scene_id,
+            scene_breakdown
+        )
+
+        # Find matching character grid (OPTIONAL - only needed if shot has characters)
+        grid_image = None
+        grid_path = None
+
+        if characters:
+            # Shot has characters - require character grid
+            char_combo = tuple(sorted(characters))
+            grid_path = grids_by_chars.get(char_combo)
+
+            if not grid_path:
+                raise ValueError(
+                    f"No character grid found for combination: {characters}. "
+                    "Cannot generate shot with characters without their grid."
+                )
+
+            full_grid_path = self.session_dir / grid_path
+            if not full_grid_path.exists():
+                raise FileNotFoundError(f"Character grid file not found: {full_grid_path}")
+
+            # Load grid as PRIMARY INPUT
+            grid_image = Image.open(full_grid_path)
+            logger.info(f"Transforming character grid: {grid_path}")
+        else:
+            # No characters in shot - generate without grid (establishing shot, empty scene, etc.)
+            logger.info(f"Shot {shot_id} has no characters - generating without grid")
+
+        # Format character descriptions into template string
+        char_desc_text = ""
+        for idx, char in enumerate(character_descriptions, 1):
+            char_desc_text += f"""
+CHARACTER {idx} (from grid position {idx}):
+PHYSICAL APPEARANCE: {char['physical_description']}
+
+This character must be placed in the scene exactly as they appear in the grid, maintaining their physical appearance, clothing, hair, facial features, and all other visual characteristics precisely.
+
+"""
+
+        # Use template from prompt file
+        if not self.prompt_template:
+            raise ValueError("Prompt template not loaded")
+
+        prompt = self.prompt_template.format(
+            shot_id=shot_id,
+            first_frame=first_frame,
+            location_description=location_description,
+            character_descriptions=char_desc_text
+        )
+
+        # Prepare contents: Grid first if available (transformation), otherwise text only (generation)
+        if grid_image:
+            # CRITICAL: Grid image is FIRST (the thing being transformed)
+            contents = [grid_image, prompt]
+            logger.debug("Using grid transformation mode")
+        else:
+            # No grid - generate from description only
+            contents = [prompt]
+            logger.debug("Using text-only generation mode (no characters in shot)")
+
+        # Generate/transform image
+        response = self.client.client.models.generate_content(
+            model="gemini-2.5-flash-image",
+            contents=contents,
+            config=types.GenerateContentConfig(
+                response_modalities=["IMAGE"],
+                image_config=types.ImageConfig(
+                    aspect_ratio="16:9",
+                ),
+                temperature=self.temperature,
+            ),
+        )
+
+        # Extract generated image and convert to PIL Image
+        generated_image = None
+        for part in response.parts:
+            if part.inline_data is not None:
+                # Get Gemini SDK Image wrapper
+                gemini_image = part.as_image()
+                # Convert to PIL Image
+                generated_image = Image.open(BytesIO(gemini_image.image_bytes))
+                break
+
+        if not generated_image:
+            raise ValueError(f"No image generated for {shot_id}")
+
+        # Save image
+        image_filename = f"{shot_id}_parent.png"
+        image_path = self.parent_shots_dir / image_filename
+
+        save_image_with_metadata(
+            generated_image,
+            image_path,
+            metadata={
+                "shot_id": shot_id,
+                "characters": characters,
+                "location": location_name,
+                "generated_at": datetime.now().isoformat(),
+                "grid_used": str(grid_path) if grid_path else "none"
+            }
+        )
+
+        return image_path

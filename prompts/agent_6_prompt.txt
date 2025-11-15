@@ -1,0 +1,71 @@
+You are transforming a character reference grid into a full cinematic scene.
+
+CRITICAL CONTEXT:
+The input image is a grid showing individual character portraits. Your task is to take those exact character appearances and place them in a fully realized cinematic scene as described below in EXCRUCIATING DETAIL.
+
+SHOT ID: {shot_id}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FIRST FRAME - SCENE COMPOSITION (FOLLOW THIS EXACTLY):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+{first_frame}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+LOCATION - ENVIRONMENT DETAILS (EVERY OBJECT, EVERY POSITION):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+{location_description}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CHARACTERS - IDENTIFY BY PHYSICAL TRAITS (DO NOT USE NAMES):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+{character_descriptions}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TRANSFORMATION REQUIREMENTS:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. CHARACTER CONSISTENCY (CRITICAL):
+   - Extract each character's exact appearance from the provided grid
+   - Preserve their hair color, style, facial features, eye color, skin tone, clothing PRECISELY
+   - Do NOT alter their physical appearance in any way
+   - Place them in the scene maintaining their visual identity from the grid
+
+2. SCENE COMPOSITION (MATCH EXACTLY):
+   - Camera angle must match the first frame description precisely
+   - Character positions, poses, and spatial relationships must be exact
+   - Depth of field, focus, and framing must match the description
+   - Every object and environmental detail must be positioned as described
+
+3. LIGHTING AND ATMOSPHERE:
+   - Match the time of day described
+   - Recreate the lighting setup detailed in the first frame description
+   - Shadows, highlights, and ambient lighting must feel natural and cinematic
+   - Light sources must be positioned as described in the location details
+
+4. ENVIRONMENTAL DETAILS (EVERY OBJECT):
+   - Include EVERY object mentioned in the location description
+   - Position them exactly as described (left wall, center, background, etc.)
+   - Match textures, materials, colors as specified
+   - Create depth with foreground, midground, and background elements
+
+5. CINEMATIC QUALITY:
+   - Professional film production quality
+   - 16:9 widescreen aspect ratio
+   - Photorealistic rendering
+   - Appropriate depth of field for the shot type
+   - Natural, believable composition
+
+6. TECHNICAL EXECUTION:
+   - The character grid is your SOURCE for character appearances
+   - Transform this grid into a full 16:9 cinematic frame
+   - Maintain the characters' visual consistency from grid to scene
+   - Expand to show the full environment and scene context
+   - NEVER GENERATE GRIDS OR HAVE BLANKSPACE/WHITESPACE
+   - NEVER GENERATE TEXT
+
+REMEMBER: You are not generating characters from scratch. The character appearances already exist in the input grid. Your job is to take those EXACT characters and place them in the fully realized scene environment described above, keeping every physical detail of their appearance identical to the grid.
+
+Transform the character grid into this complete cinematic scene now, following every detail specified above.

@@ -138,7 +138,7 @@ def render_new_project_page():
             "🚀 Run Pipeline",
             type="primary",
             disabled=not input_data or st.session_state.running,
-            use_container_width=True
+            width="stretch"
         )
 
     if run_button and input_data:
@@ -209,8 +209,23 @@ def display_session_results(session: SessionState):
     """Display session results in tabs."""
     st.subheader("Results")
 
-    # Create tabs for each agent
-    tabs = st.tabs(["Agent 1: Screenplay", "Agent 2: Scenes", "Agent 3: Shots", "Agent 4: Grouping"])
+    # Get session directory for image paths (Phase 2)
+    session_manager = st.session_state.pipeline.session_manager
+    session_dir = Path(session_manager.base_directory) / session.session_id
+
+    # Create tabs for each agent (Phase 1 + Phase 2)
+    tabs = st.tabs([
+        "Agent 1: Screenplay",
+        "Agent 2: Scenes",
+        "Agent 3: Shots",
+        "Agent 4: Grouping",
+        "Agent 5: Characters",
+        "Agent 6: Parent Shots",
+        "Agent 7: Verification",
+        "Agent 8: Child Shots",
+        "Agent 9: Verification",
+        "📦 Complete Export"
+    ])
 
     # Agent 1 Output
     with tabs[0]:
@@ -312,7 +327,7 @@ def display_session_results(session: SessionState):
                         data=json.dumps(agent_output.output_data, indent=2),
                         file_name=f"{session.session_id}_grouped_shots.json",
                         mime="application/json",
-                        use_container_width=True
+                        width="stretch"
                     )
 
                 with col2:
@@ -330,7 +345,7 @@ def display_session_results(session: SessionState):
                             file_name=f"{session.session_id}_grouped_shots.md",
                             mime="text/markdown",
                             help="Notion-compatible Markdown with collapsible shot hierarchy",
-                            use_container_width=True
+                            width="stretch"
                         )
                     else:
                         st.warning("Notion export requires Agent 3 output")
@@ -345,6 +360,315 @@ def display_session_results(session: SessionState):
                     st.error(agent_output.error_message)
         else:
             st.info("Agent 4 not yet executed")
+
+    # Agent 5 Output - Character Creator
+    with tabs[4]:
+        if "agent_5" in session.agents:
+            agent_output = session.agents["agent_5"]
+            if agent_output.status == "completed":
+                st.markdown("### Character Creator")
+
+                char_data = agent_output.output_data
+                total_chars = char_data.get("total_characters", 0)
+                total_grids = char_data.get("total_grids", 0)
+
+                st.info(f"Characters: {total_chars} | Grids: {total_grids}")
+
+                # Display characters with images
+                st.markdown("#### Generated Characters")
+                for char in char_data.get("characters", []):
+                    with st.expander(f"🧑 {char.get('name', 'Unknown')}"):
+                        img_path = session_dir / char.get("image_path", "")
+                        if img_path.exists():
+                            st.image(str(img_path), caption=char.get("name"), width=300)
+                        st.write(char.get("description", ""))
+
+                # Display grids
+                st.markdown("#### Character Grids")
+                for grid in char_data.get("character_grids", []):
+                    grid_id = grid.get("grid_id", "Unknown")
+                    with st.expander(f"📸 Grid: {grid_id}"):
+                        img_path = session_dir / grid.get("grid_path", "")
+                        if img_path.exists():
+                            st.image(str(img_path), caption=grid_id, width="stretch")
+                        st.write(f"Characters: {', '.join(grid.get('characters', []))}")
+
+                # Download
+                st.download_button(
+                    "📥 Download Character Data",
+                    data=json.dumps(agent_output.output_data, indent=2),
+                    file_name=f"{session.session_id}_characters.json",
+                    mime="application/json"
+                )
+            else:
+                st.warning(f"Agent 5 status: {agent_output.status}")
+                if agent_output.error_message:
+                    st.error(agent_output.error_message)
+        else:
+            st.info("Agent 5 not yet executed (Phase 2)")
+
+    # Agent 6/7 Output - Parent Shots & Verification (combined)
+    with tabs[5]:
+        if "agent_7" in session.agents:
+            agent_output = session.agents["agent_7"]
+            if agent_output.status == "completed":
+                st.markdown("### Parent Shots (Verified)")
+
+                parent_data = agent_output.output_data
+                total_verified = parent_data.get("metadata", {}).get("total_verified", 0)
+                total_soft_fail = parent_data.get("metadata", {}).get("total_soft_failures", 0)
+
+                st.info(f"✓ Verified: {total_verified} | ⚠️ Soft Failures: {total_soft_fail}")
+
+                # Display parent shots
+                for parent in parent_data.get("parent_shots", []):
+                    shot_id = parent.get("shot_id")
+                    status = parent.get("verification_status", "unknown")
+                    status_emoji = "✓" if status == "verified" else "⚠️"
+
+                    with st.expander(f"{status_emoji} {shot_id} ({status})"):
+                        img_path = session_dir / parent.get("image_path", "")
+                        if img_path.exists():
+                            st.image(str(img_path), caption=shot_id, width="stretch")
+
+                        # Verification details
+                        final_ver = parent.get("final_verification", {})
+                        if final_ver:
+                            st.write(f"**Confidence:** {final_ver.get('confidence', 0):.2f}")
+                            if final_ver.get("issues"):
+                                st.warning(f"**Issues:** {', '.join(final_ver['issues'])}")
+
+                # Download
+                st.download_button(
+                    "📥 Download Parent Shots Data",
+                    data=json.dumps(agent_output.output_data, indent=2),
+                    file_name=f"{session.session_id}_parent_shots.json",
+                    mime="application/json"
+                )
+            else:
+                st.warning(f"Agent 7 status: {agent_output.status}")
+        else:
+            st.info("Agent 6/7 not yet executed (Phase 2)")
+
+    # Agent 7 Tab (Verification Details)
+    with tabs[6]:
+        if "agent_7" in session.agents:
+            st.markdown("### Parent Verification Details")
+            agent_output = session.agents["agent_7"]
+            if agent_output.status == "completed":
+                st.json(agent_output.output_data)
+            else:
+                st.warning(f"Status: {agent_output.status}")
+        else:
+            st.info("Agent 7 not yet executed")
+
+    # Agent 8/9 Output - Child Shots & Verification (combined)
+    with tabs[7]:
+        if "agent_9" in session.agents:
+            agent_output = session.agents["agent_9"]
+            if agent_output.status == "completed":
+                st.markdown("### Child Shots (Verified)")
+
+                child_data = agent_output.output_data
+                total_verified = child_data.get("metadata", {}).get("total_verified", 0)
+                total_soft_fail = child_data.get("metadata", {}).get("total_soft_failures", 0)
+
+                st.info(f"✓ Verified: {total_verified} | ⚠️ Soft Failures: {total_soft_fail}")
+
+                # Display child shots
+                child_shots = child_data.get("child_shots", [])
+                if len(child_shots) > 20:
+                    st.warning(f"Showing first 20 of {len(child_shots)} child shots (download JSON for complete list)")
+
+                for child in child_shots[:20]:  # Limit to first 20 for UI
+                    shot_id = child.get("shot_id")
+                    status = child.get("verification_status", "unknown")
+                    status_emoji = "✓" if status == "verified" else "⚠️"
+
+                    with st.expander(f"{status_emoji} {shot_id} ({status})"):
+                        img_path = session_dir / child.get("image_path", "")
+                        if img_path.exists():
+                            st.image(str(img_path), caption=shot_id, width="stretch")
+
+                # Download
+                st.download_button(
+                    "📥 Download Child Shots Data",
+                    data=json.dumps(agent_output.output_data, indent=2),
+                    file_name=f"{session.session_id}_child_shots.json",
+                    mime="application/json"
+                )
+            else:
+                st.warning(f"Agent 9 status: {agent_output.status}")
+        else:
+            st.info("Agent 8/9 not yet executed (Phase 2)")
+
+    # Agent 9 Tab (Verification Details)
+    with tabs[8]:
+        if "agent_9" in session.agents:
+            st.markdown("### Child Verification Details")
+            agent_output = session.agents["agent_9"]
+            if agent_output.status == "completed":
+                st.json(agent_output.output_data)
+            else:
+                st.warning(f"Status: {agent_output.status}")
+        else:
+            st.info("Agent 9 not yet executed")
+
+    # Complete Export Tab
+    with tabs[9]:
+        st.markdown("### 📦 Complete Export")
+        st.markdown("Export your Story Architect project in various formats.")
+
+        # Check if Phase 2 completed
+        has_phase2 = "agent_9" in session.agents and session.agents["agent_9"].status == "completed"
+
+        if has_phase2:
+            st.success("✓ Phase 2 complete - All images generated!")
+        else:
+            st.info("Phase 2 in progress or not started - Exports will include current outputs")
+
+        # Export Option 1a: HTML Export (Single File)
+        st.markdown("#### Option 1a: HTML Export (Single File)")
+        st.markdown("**Single self-contained HTML file** with all images embedded. Best for smaller projects (< 50MB).")
+
+        if st.button("🌐 Export as Single HTML", type="primary", key="html_export"):
+            try:
+                from core.export import generate_html_export
+
+                # Get session directory from pipeline's session manager
+                session_manager = st.session_state.pipeline.session_manager
+                session_dir = Path(session_manager.base_directory) / session.session_id
+
+                # Generate HTML
+                with st.spinner("Generating HTML export with embedded images..."):
+                    html_path = generate_html_export(session_dir, session.model_dump())
+
+                st.success(f"✓ HTML export generated: {html_path.name}")
+                st.info("💡 Open this file in any browser, or import directly into Notion!")
+
+                # Provide download
+                with open(html_path, 'rb') as f:
+                    st.download_button(
+                        "📥 Download HTML File",
+                        data=f.read(),
+                        file_name=html_path.name,
+                        mime="text/html",
+                        width="stretch",
+                        key="html_download"
+                    )
+
+            except Exception as e:
+                st.error(f"Failed to generate HTML export: {str(e)}")
+
+        st.markdown("---")
+
+        # Export Option 1b: HTML Export (Auto-Split Parts) - NEW
+        st.markdown("#### Option 1b: HTML Export (Auto-Split Parts) 🆕")
+        st.markdown("**Automatically splits into multiple files** if needed. Each part < 50MB. Recommended for large projects.")
+
+        if st.button("🌐 Export as HTML Parts", type="primary", key="html_parts_export"):
+            try:
+                from core.export import generate_html_export_parts
+
+                # Get session directory from pipeline's session manager
+                session_manager = st.session_state.pipeline.session_manager
+                session_dir = Path(session_manager.base_directory) / session.session_id
+
+                # Generate parts
+                with st.spinner("Generating HTML export with auto-splitting..."):
+                    html_paths = generate_html_export_parts(session_dir, session.model_dump())
+
+                # Success message
+                if len(html_paths) == 1:
+                    st.success(f"✓ Generated 1 file (project fits in single file!)")
+                else:
+                    st.success(f"✓ Generated {len(html_paths)} parts (split to meet 50MB limit)")
+
+                st.info("💡 Each file can be imported to Notion separately. Open in any browser!")
+
+                # Provide download button for each part
+                for idx, html_path in enumerate(html_paths, 1):
+                    file_size_mb = html_path.stat().st_size / (1024 * 1024)
+                    with open(html_path, 'rb') as f:
+                        st.download_button(
+                            f"📥 Download Part {idx} of {len(html_paths)} ({file_size_mb:.1f} MB)",
+                            data=f.read(),
+                            file_name=html_path.name,
+                            mime="text/html",
+                            width="stretch",
+                            key=f"html_part_download_{idx}"
+                        )
+
+            except Exception as e:
+                st.error(f"Failed to generate HTML parts: {str(e)}")
+
+        st.markdown("---")
+
+        # Export Option 2: Notion ZIP
+        st.markdown("#### Option 2: Notion ZIP Export")
+        st.markdown("Clean ZIP with markdown + images folder. For Notion users who prefer ZIP imports.")
+
+        if st.button("📥 Export for Notion (ZIP)", key="notion_export"):
+            try:
+                from core.export import generate_notion_export_zip
+
+                # Get session directory from pipeline's session manager
+                session_manager = st.session_state.pipeline.session_manager
+                session_dir = Path(session_manager.base_directory) / session.session_id
+
+                # Generate Notion ZIP
+                with st.spinner("Generating Notion export ZIP..."):
+                    zip_path = generate_notion_export_zip(session_dir, session.model_dump())
+
+                st.success(f"✓ Notion export generated: {zip_path.name}")
+
+                # Provide download
+                with open(zip_path, 'rb') as f:
+                    st.download_button(
+                        "📥 Download Notion Export",
+                        data=f.read(),
+                        file_name=zip_path.name,
+                        mime="application/zip",
+                        width="stretch",
+                        key="notion_download"
+                    )
+
+            except Exception as e:
+                st.error(f"Failed to generate Notion export: {str(e)}")
+
+        st.markdown("---")
+
+        # Export Option 3: Complete Archive
+        st.markdown("#### Option 3: Complete Archive")
+        st.markdown("Full ZIP export including all JSON files, markdown, and images. For archival/debugging purposes.")
+
+        if st.button("📦 Export Complete Archive", key="complete_export"):
+            try:
+                from core.export import generate_complete_export_zip
+
+                # Get session directory from pipeline's session manager
+                session_manager = st.session_state.pipeline.session_manager
+                session_dir = Path(session_manager.base_directory) / session.session_id
+
+                # Generate complete ZIP
+                with st.spinner("Generating complete export ZIP..."):
+                    zip_path = generate_complete_export_zip(session_dir, session.model_dump())
+
+                st.success(f"✓ Complete export generated: {zip_path.name}")
+
+                # Provide download
+                with open(zip_path, 'rb') as f:
+                    st.download_button(
+                        "📥 Download Complete Archive",
+                        data=f.read(),
+                        file_name=zip_path.name,
+                        mime="application/zip",
+                        width="stretch",
+                        key="complete_download"
+                    )
+
+            except Exception as e:
+                st.error(f"Failed to generate complete export: {str(e)}")
 
 
 def render_resume_session_page():
@@ -397,7 +721,7 @@ def render_resume_session_page():
 
             resume_from = st.selectbox(
                 "Resume from agent",
-                options=["agent_1", "agent_2", "agent_3", "agent_4"]
+                options=["agent_1", "agent_2", "agent_3", "agent_4", "agent_5", "agent_6", "agent_7", "agent_8", "agent_9"]
             )
 
             if st.button("Resume Pipeline", type="primary"):
