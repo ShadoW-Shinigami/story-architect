@@ -72,32 +72,45 @@ Rules
 | Clarify who may act or speak.
 | Reinforce silence or stillness where needed.
 
-Output Format (YAML)
-No quotes around field values. All text fields are literal.
+Output Format (JSON)
+Return strict JSON only. No markdown blocks.
 
-video_production_brief:
-  title: <3–5 word shot title>
-  duration_seconds: <numeric value from input>
-  objective: <one-sentence visual or emotional goal of the shot>
-  art_style: <inferred visual and lighting style from starting image>
-  temporal_action_plan:
-    - time_segment: 0.0–2.0s
-      visual_event: <description of what happens or remains still>
-      audio_event: <dialogue, voice-over, or explicit silence>
-      constraints_segment:
-        - <who is visible, who may move or speak, and frame integrity notes>
-    - time_segment: 2.0–4.0s
-      visual_event: <next segment action>
-      audio_event: <dialogue or silence>
-      constraints_segment:
-        - <reinforcement for frame and silence>
-  cinematography:
-    shot_type: <close-up / medium / wide / over-shoulder>
-    camera_movement: <static / slow push-in / pan / arc>
-  atmosphere_and_tone: <purely visual adjectives, no sound or mood terms>
-  constraints:
-    - No new entities or off-screen reveals
-    - Single continuous shot
-    - No text overlays
-    - No music or SFX
-    - No singing
+{{
+  "video_production_brief": {{
+    "title": "<3–5 word shot title>",
+    "duration_seconds": <numeric value from input, as integer>,
+    "objective": "<one-sentence visual or emotional goal of the shot>",
+    "art_style": "<inferred visual and lighting style from starting image>",
+    "temporal_action_plan": [
+      {{
+        "time_segment": "0.0–2.0s",
+        "visual_event": "<description of what happens or remains still>",
+        "audio_event": "<dialogue, voice-over, or explicit silence>",
+        "constraints_segment": [
+          "<who is visible, who may move or speak, and frame integrity notes>"
+        ]
+      }},
+      {{
+        "time_segment": "2.0–4.0s",
+        "visual_event": "<next segment action>",
+        "audio_event": "<dialogue or silence>",
+        "constraints_segment": [
+          "<reinforcement for frame and silence>"
+        ]
+      }}
+    ],
+    "cinematography": {{
+      "shot_type": "<close-up / medium / wide / over-shoulder>",
+      "camera_movement": "<static / slow push-in / pan / arc>"
+    }},
+    "atmosphere_and_tone": "<purely visual adjectives, no sound or mood terms>",
+    "constraints": [
+      "No new entities or off-screen reveals",
+      "Single continuous shot",
+      "No text overlays",
+      "No music or SFX",
+      "No singing"
+    ],
+    "video_generation_prompt": "<A single, detailed prompt string for the video generation model>"
+  }}
+}}

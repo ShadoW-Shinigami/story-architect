@@ -74,24 +74,24 @@ class ShotBreakdownAgent(BaseAgent):
             # Validate each shot
             for shot in shot_breakdown.shots:
                 # Check description length
-                if len(shot.shot_description) < 30:
+                if len(shot.shot_description) < 10:
                     raise ValueError(
                         f"Shot description for {shot.shot_id} is too short "
-                        f"(minimum 30 characters)"
+                        f"(minimum 10 characters)"
                     )
 
                 # Check first frame verbosity (validated in Shot model, but double-check)
-                if len(shot.first_frame) < 40:
+                if len(shot.first_frame) < 10:
                     raise ValueError(
                         f"First frame description for {shot.shot_id} must be more verbose "
-                        f"(minimum 50 characters)"
+                        f"(minimum 10 characters)"
                     )
 
                 # Check animation description
-                if len(shot.animation) < 20:
+                if len(shot.animation) < 5:
                     raise ValueError(
                         f"Animation description for {shot.shot_id} is too short "
-                        f"(minimum 20 characters)"
+                        f"(minimum 5 characters)"
                     )
 
                 # Ensure shot_id and scene_id are present

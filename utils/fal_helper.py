@@ -151,9 +151,121 @@ def _upload_image_to_fal(image_path: Path) -> str:
         raise
 
 
+def _get_fal_params_from_size(width: int, height: int) -> Tuple[str, str]:
+    """
+    Determine aspect_ratio and resolution based on width and height.
+    
+    Returns:
+        Tuple of (aspect_ratio, resolution)
+    """
+    # Determine resolution
+    # Options: "1K", "2K", "4K"
+    max_dim = max(width, height)
+    if max_dim >= 3000:
+        resolution = "4K"
+    elif max_dim >= 1500:
+        resolution = "2K"
+    else:
+        resolution = "1K"
+    
+    # Determine aspect ratio
+    # Options: "21:9", "16:9", "3:2", "4:3", "5:4", "1:1", "4:5", "3:4", "2:3", "9:16"
+    ratio = width / height
+    
+    # Map common ratios with some tolerance
+    if 0.9 <= ratio <= 1.1:
+        aspect_ratio = "1:1"
+    elif 1.7 <= ratio <= 1.85:  # 16:9 is ~1.77
+        aspect_ratio = "16:9"
+    elif 1.25 <= ratio <= 1.4:  # 4:3 is ~1.33
+        aspect_ratio = "4:3"
+    elif 1.45 <= ratio <= 1.55: # 3:2 is 1.5
+        aspect_ratio = "3:2"
+    elif 2.0 <= ratio <= 2.4:   # 21:9 is ~2.33
+        aspect_ratio = "21:9"
+    elif 0.5 <= ratio <= 0.6:   # 9:16 is ~0.56
+        aspect_ratio = "9:16"
+    elif 0.6 <= ratio <= 0.7:   # 2:3 is ~0.66
+        aspect_ratio = "2:3"
+    elif 0.7 <= ratio <= 0.8:   # 3:4 is 0.75
+        aspect_ratio = "3:4"
+    elif 0.8 <= ratio <= 0.9:   # 4:5 is 0.8
+        aspect_ratio = "4:5"
+    else:
+        # Default fallback based on orientation
+        if width > height:
+            aspect_ratio = "16:9"
+        elif height > width:
+            aspect_ratio = "9:16"
+        else:
+            aspect_ratio = "1:1"
+            
+    return aspect_ratio, resolution
+
+
+def resolve_dimensions_from_config(config: Dict[str, Any], default_aspect: str = "16:9") -> Tuple[int, int]:
+    """
+    Calculate pixel width and height based on config settings.
+    Supports both 'resolution/aspect_ratio' (Nano Banana) and 'width/height' (Seedream/Legacy) formats.
+
+    Args:
+        config: Agent or global configuration dictionary
+        default_aspect: Default aspect ratio if not found (16:9 or 1:1)
+
+    Returns:
+        Tuple of (width, height)
+    """
+    # 1. Check for explicit legacy width/height (Seedream style)
+    # Only use if both are present and look valid (not 0)
+    width = config.get("width")
+    height = config.get("height")
+    if width and height and isinstance(width, int) and isinstance(height, int) and width > 0 and height > 0:
+        return width, height
+
+    # 2. Parse resolution and aspect ratio (Nano Banana / Gemini style)
+    resolution = config.get("resolution", "2K")  # Default to 2K if missing
+    aspect_ratio = config.get("aspect_ratio", default_aspect)
+    
+    # Base dimension from resolution
+    if resolution == "4K":
+        base = 3840
+    elif resolution == "2K":
+        base = 1920 # Use 1920 for 16:9 friendly 2K, or 2048? 1920 is standard HD/2K video width
+    else: # 1K
+        base = 1024
+
+    # Calculate dims based on aspect ratio
+    if aspect_ratio == "1:1":
+        if resolution == "2K": base = 2048 # Square 2K
+        return base, base
+        
+    elif aspect_ratio == "16:9":
+        # width = base, height = base / 1.77
+        if resolution == "4K": return 3840, 2160
+        if resolution == "2K": return 1920, 1080
+        return 1024, 576
+        
+    elif aspect_ratio == "9:16":
+        if resolution == "4K": return 2160, 3840
+        if resolution == "2K": return 1080, 1920
+        return 576, 1024
+        
+    elif aspect_ratio == "4:3":
+        return base, int(base * 3 / 4)
+        
+    elif aspect_ratio == "3:2":
+        return base, int(base * 2 / 3)
+        
+    elif aspect_ratio == "21:9":
+        return base, int(base * 9 / 21)
+        
+    # Fallback
+    return base, int(base * 9 / 16)
+
+
 def generate_with_fal_text_to_image(
     prompt: str,
-    model: str = "fal-ai/bytedance/seedream/v4/text-to-image",
+    model: str = "fal-ai/nano-banana-pro",
     width: int = 4096,
     height: int = 4096,
     num_images: int = 1,
@@ -191,19 +303,36 @@ def generate_with_fal_text_to_image(
     logger.info(f"Size: {width}x{height}")
 
     def _generate():
-        result = fal_client.subscribe(
-            model,
-            arguments={
-                "prompt": prompt,
+        # Prepare arguments based on model
+        arguments = {
+            "prompt": prompt,
+            "num_images": num_images,
+            "output_format": "png",
+        }
+
+        if "nano-banana" in model:
+            # Nano Banana Pro specific arguments
+            aspect_ratio, resolution = _get_fal_params_from_size(width, height)
+            arguments.update({
+                "aspect_ratio": aspect_ratio,
+                "resolution": resolution,
+            })
+            logger.info(f"Using Nano Banana params: aspect_ratio={aspect_ratio}, resolution={resolution}")
+        else:
+            # Legacy/Other model arguments (Seedream, etc.)
+            arguments.update({
                 "image_size": {
                     "height": height,
                     "width": width
                 },
-                "num_images": num_images,
                 "max_images": num_images,
                 "enable_safety_checker": enable_safety_checker,
                 "enhance_prompt_mode": enhance_prompt_mode
-            },
+            })
+
+        result = fal_client.subscribe(
+            model,
+            arguments=arguments,
             with_logs=True,
             on_queue_update=_on_queue_update,
         )
@@ -234,11 +363,11 @@ def generate_with_fal_text_to_image(
 def generate_with_fal_edit(
     prompt: str,
     image_paths: List[Path],
-    model: str = "fal-ai/bytedance/seedream/v4/edit",
+    model: str = "fal-ai/nano-banana-pro/edit",
     width: int = 3840,
     height: int = 2160,
     num_images: int = 1,
-    enable_safety_checker: bool = True,
+    enable_safety_checker: bool = False,
     enhance_prompt_mode: str = "standard"
 ) -> Tuple[Image.Image, int]:
     """
@@ -286,21 +415,38 @@ def generate_with_fal_edit(
 
         logger.info(f"All {len(image_urls)} images uploaded successfully")
 
-        # Call fal edit API
-        result = fal_client.subscribe(
-            model,
-            arguments={
-                "prompt": prompt,
+        # Prepare arguments based on model
+        arguments = {
+            "prompt": prompt,
+            "num_images": num_images,
+            "output_format": "png",
+            "image_urls": image_urls
+        }
+
+        if "nano-banana" in model:
+            # Nano Banana Pro specific arguments
+            aspect_ratio, resolution = _get_fal_params_from_size(width, height)
+            arguments.update({
+                "aspect_ratio": aspect_ratio,
+                "resolution": resolution,
+            })
+            logger.info(f"Using Nano Banana params: aspect_ratio={aspect_ratio}, resolution={resolution}")
+        else:
+            # Legacy/Other model arguments
+            arguments.update({
                 "image_size": {
                     "height": height,
                     "width": width
                 },
-                "num_images": num_images,
                 "max_images": num_images,
                 "enable_safety_checker": enable_safety_checker,
-                "enhance_prompt_mode": enhance_prompt_mode,
-                "image_urls": image_urls
-            },
+                "enhance_prompt_mode": enhance_prompt_mode
+            })
+
+        # Call fal edit API
+        result = fal_client.subscribe(
+            model,
+            arguments=arguments,
             with_logs=True,
             on_queue_update=_on_queue_update,
         )

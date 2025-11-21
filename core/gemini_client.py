@@ -12,6 +12,7 @@ from loguru import logger
 from google import genai
 from google.genai import types
 from google.oauth2.service_account import Credentials
+import yaml
 
 
 class GeminiClient:
@@ -20,7 +21,7 @@ class GeminiClient:
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model_name: str = "gemini-2.5-pro",
+        model_name: Optional[str] = None,
         max_retries: int = 3,
         use_vertex_ai: bool = False,
         vertex_project: Optional[str] = None,
@@ -32,14 +33,18 @@ class GeminiClient:
 
         Args:
             api_key: Google API key. If None, reads from GEMINI_API_KEY or GOOGLE_API_KEY env var
-            model_name: Name of the Gemini model to use
+            model_name: Name of the Gemini model to use. Defaults to config.yaml value or "gemini-3-pro-preview"
             max_retries: Maximum number of retry attempts
             use_vertex_ai: Whether to use Vertex AI instead of direct API
             vertex_project: GCP project ID (for Vertex AI)
             vertex_location: GCP location/region (for Vertex AI)
             vertex_credentials_file: Path to service account JSON file (for Vertex AI)
         """
-        self.model_name = model_name
+        # Determine default model name from config if not provided
+        if model_name is None:
+            model_name = self._get_default_model_from_config()
+        
+        self.model_name = model_name or "gemini-3-pro-preview"
         self.max_retries = max_retries
         self.use_vertex_ai = use_vertex_ai
 
@@ -49,15 +54,32 @@ class GeminiClient:
         else:
             self._init_api_key(api_key)
 
-        logger.info(f"Initialized GeminiClient with model: {model_name}")
+        logger.info(f"Initialized GeminiClient with model: {self.model_name}")
+
+    def _get_default_model_from_config(self) -> Optional[str]:
+        """
+        Attempt to read the default model from config.yaml.
+        
+        Returns:
+            Model name string if found, None otherwise
+        """
+        try:
+            config_path = Path("config.yaml")
+            if config_path.exists():
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    config = yaml.safe_load(f)
+                    return config.get("gemini", {}).get("model")
+        except Exception as e:
+            logger.warning(f"Failed to read default model from config.yaml: {e}")
+        return None
 
     def _init_api_key(self, api_key: Optional[str]) -> None:
         """
         Initialize client for direct API with API key.
-
+        
         Args:
             api_key: Google API key
-
+            
         Raises:
             ValueError: If API key is not provided
         """

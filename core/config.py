@@ -52,7 +52,7 @@ class Config:
             Configuration value
 
         Example:
-            config.get('gemini.model')  # Returns 'gemini-2.5-pro'
+            config.get('gemini.model')  # Returns 'gemini-3-pro-preview'
             config.get('agents.agent_1.temperature')  # Returns 0.8
         """
         keys = key.split('.')

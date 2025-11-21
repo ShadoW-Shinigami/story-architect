@@ -1,6 +1,7 @@
 """
 Agent 10: Video Dialogue Generator
-Generates videos for parent and child shots using FAL AI's Veo3.1 API.
+Generates videos for parent and child shots using FAL AI Veo3.1 or Vertex AI Veo 3.1 Fast.
+Supports automatic aspect ratio detection and image optimization for base64 encoding.
 """
 
 import json
@@ -17,10 +18,12 @@ from pydantic import ValidationError
 from agents.base_agent import BaseAgent
 from google.genai import types
 from core.validators import ProductionBriefResponse
+from utils.image_utils import get_aspect_ratio_from_image, optimize_image_for_base64
+from utils.vertex_veo_helper import VertexVeoClient
 
 
 class VideoDialogueAgent(BaseAgent):
-    """Agent for generating video dialogues using FAL AI Veo3.1."""
+    """Agent for generating video dialogues using FAL AI Veo3.1 or Vertex AI Veo 3.1 Fast."""
 
     def __init__(self, gemini_client, config, session_dir: Path):
         """
@@ -43,26 +46,63 @@ class VideoDialogueAgent(BaseAgent):
         self.videos_dir.mkdir(parents=True, exist_ok=True)
         self.briefs_dir.mkdir(parents=True, exist_ok=True)
 
-        # FAL configuration
-        self.fal_api_key = config.get("fal_api_key") or os.getenv("FAL_KEY") or os.getenv("FAL_API_KEY")
-        if not self.fal_api_key:
-            raise ValueError("FAL_KEY not found in config or environment (set FAL_KEY environment variable)")
-
-        self.video_resolution = config.get("video_resolution", "1080p")
-        self.generate_audio = config.get("generate_audio", True)
+        # Video provider configuration
+        self.video_provider = config.get("video_provider", "fal").lower()
         self.aspect_ratio = config.get("aspect_ratio", "auto")
+        self.max_image_size_mb = config.get("max_image_size_mb", 7.0)
         self.gemini_model = config.get("model", "gemini-3-pro-preview")
-
-        # Import and configure fal_client
-        try:
-            import fal_client
-            self.fal_client = fal_client
-            # Configure API key
-            os.environ["FAL_KEY"] = self.fal_api_key
-        except ImportError:
-            raise ImportError("fal_client library not installed. Run: pip install fal-client")
-
-        logger.info(f"{self.agent_name}: Initialized with FAL API for video generation")
+        self.max_retries = config.get("max_retries", 3)
+        
+        # FAL configuration
+        if self.video_provider == "fal":
+            self.fal_api_key = config.get("fal_api_key") or os.getenv("FAL_KEY") or os.getenv("FAL_API_KEY")
+            if not self.fal_api_key:
+                raise ValueError("FAL_KEY not found in config or environment (set FAL_KEY environment variable)")
+            
+            self.video_resolution = config.get("video_resolution", "1080p")
+            self.generate_audio = config.get("generate_audio", True)
+            
+            # Import and configure fal_client
+            try:
+                import fal_client
+                self.fal_client = fal_client
+                # Configure API key
+                os.environ["FAL_KEY"] = self.fal_api_key
+            except ImportError:
+                raise ImportError("fal_client library not installed. Run: pip install fal-client")
+            
+            logger.info(f"{self.agent_name}: Initialized with FAL API for video generation")
+        
+        # Vertex AI configuration
+        elif self.video_provider == "vertex_ai":
+            self.vertex_project_id = config.get("vertex_ai_project_id") or os.getenv("GOOGLE_CLOUD_PROJECT")
+            if not self.vertex_project_id:
+                raise ValueError("vertex_ai_project_id not found in config or GOOGLE_CLOUD_PROJECT environment variable")
+            
+            self.vertex_location = (
+                config.get("vertex_ai_location") or 
+                os.getenv("GOOGLE_CLOUD_LOCATION") or 
+                os.getenv("GOOGLE_CLOUD_REGION") or 
+                "us-central1"
+            )
+            self.vertex_model_id = config.get("vertex_ai_model_id", "veo-3.1-fast-generate-preview")
+            self.vertex_credentials_file = config.get("vertex_ai_credentials_file")
+            
+            # Initialize Vertex AI client
+            try:
+                self.vertex_client = VertexVeoClient(
+                    project_id=self.vertex_project_id,
+                    location=self.vertex_location,
+                    model_id=self.vertex_model_id,
+                    credentials_file=self.vertex_credentials_file,
+                )
+            except Exception as e:
+                raise ValueError(f"Failed to initialize Vertex AI client: {str(e)}")
+            
+            logger.info(f"{self.agent_name}: Initialized with Vertex AI Veo for video generation")
+        
+        else:
+            raise ValueError(f"Unknown video_provider: {self.video_provider}. Options: 'fal', 'vertex_ai'")
 
     def validate_input(self, input_data: Any) -> bool:
         """Validate input data."""
@@ -200,7 +240,8 @@ class VideoDialogueAgent(BaseAgent):
                 "total_parent_videos": len(parent_shots),
                 "total_child_videos": len(child_shots),
                 "model_used": self.gemini_model,
-                "fal_model": "fal-ai/veo3.1/fast/image-to-video"
+                "video_provider": self.video_provider,
+                "video_model": "fal-ai/veo3.1/fast/image-to-video" if self.video_provider == "fal" else "veo-3.1-fast"
             }
         }
 
@@ -241,7 +282,8 @@ class VideoDialogueAgent(BaseAgent):
                 "total_parent_videos": len(parent_shots),
                 "total_child_videos": len(child_shots),
                 "model_used": self.gemini_model,
-                "fal_model": "fal-ai/veo3.1/fast/image-to-video"
+                "video_provider": self.video_provider,
+                "video_model": "fal-ai/veo3.1/fast/image-to-video" if self.video_provider == "fal" else "veo-3.1-fast"
             }
         }
 
@@ -518,13 +560,18 @@ class VideoDialogueAgent(BaseAgent):
 
         # Step 1: Generate video production brief using Gemini
         logger.info(f"{self.agent_name}: Generating production brief with Gemini...")
+        
+        # Get shot details for duration
+        shot_details_full = shot_details.get("shot_description", "") or shot_details.get("first_frame", "")
+        
         production_brief = self._generate_production_brief(
             pil_image=pil_image,
             screenplay=screenplay,
             shot_number=shot_number,
             shot_description=shot_description,
             character_details=character_details,
-            shot_type=shot_type
+            shot_type=shot_type,
+            start_frame=shot_details_full  # Add missing parameter
         )
 
         # Save production brief as JSON
@@ -532,36 +579,115 @@ class VideoDialogueAgent(BaseAgent):
         with open(brief_path, 'w', encoding='utf-8') as f:
             json.dump(production_brief, f, indent=2, ensure_ascii=False)
 
-        # Extract video generation prompt and duration
-        video_prompt = production_brief.get("video_production_brief", {}).get(
-            "video_generation_prompt",
-            "A cinematic shot with subtle movement"
-        )
+        # Extract duration from production brief
         duration_seconds = production_brief.get("video_production_brief", {}).get(
             "duration_seconds", 6
         )
 
-        # Step 2: Upload image to FAL
-        logger.info(f"{self.agent_name}: Uploading image to FAL...")
-        image_url = self.fal_client.upload_file(str(image_path))
-        logger.debug(f"{self.agent_name}: Image uploaded: {image_url}")
+        # Round duration to nearest valid value (4, 6, or 8 seconds)
+        if duration_seconds <= 5:
+            duration_seconds = 4
+        elif duration_seconds <= 7:
+            duration_seconds = 6
+        else:
+            duration_seconds = 8
 
-        # Step 3: Generate video using FAL API
-        logger.info(f"{self.agent_name}: Calling FAL API for video generation (this may take several minutes)...")
-        logger.info(f"{self.agent_name}: Video duration: {duration_seconds}s")
-        video_result = self._call_fal_api(
-            prompt=video_prompt,
-            image_url=image_url,
-            duration=f"{duration_seconds}s"
-        )
+        logger.debug(f"{self.agent_name}: Duration rounded to {duration_seconds}s")
 
-        # Extract video URL
-        video_url = video_result.get("video", {}).get("url")
-        if not video_url:
-            raise ValueError("No video URL in FAL API response")
+        # Detect aspect ratio from image if set to "auto"
+        if self.aspect_ratio == "auto":
+            detected_aspect_ratio = get_aspect_ratio_from_image(image_path)
+            logger.info(f"{self.agent_name}: Detected aspect ratio: {detected_aspect_ratio}")
+        else:
+            detected_aspect_ratio = self.aspect_ratio
+            logger.debug(f"{self.agent_name}: Using configured aspect ratio: {detected_aspect_ratio}")
 
-        # Step 4: Download video to local directory
-        video_path = self._download_video(video_url, shot_id)
+        # Step 2: Generate video based on provider (with retries)
+        video_result_metadata = {}
+        
+        for attempt in range(self.max_retries):
+            try:
+                if self.video_provider == "fal":
+                    # FAL workflow - upload image and call API
+                    logger.info(f"{self.agent_name}: Uploading image to FAL...")
+                    image_url = self.fal_client.upload_file(str(image_path))
+                    logger.debug(f"{self.agent_name}: Image uploaded: {image_url}")
+
+                    logger.info(f"{self.agent_name}: Calling FAL API for video generation (this may take several minutes)...")
+                    logger.info(f"{self.agent_name}: Video duration: {duration_seconds}s, aspect ratio: {detected_aspect_ratio}")
+                    
+                    video_result = self._call_fal_api(
+                        prompt=production_brief,  # Send full production brief
+                        image_url=image_url,
+                        duration=f"{duration_seconds}s",
+                        aspect_ratio=detected_aspect_ratio
+                    )
+
+                    # Extract video URL
+                    video_url = video_result.get("video", {}).get("url")
+                    if not video_url:
+                        raise ValueError("No video URL in FAL API response")
+
+                    # Download video to local directory
+                    video_path = self._download_video(video_url, shot_id)
+                    
+                    video_result_metadata = {
+                        "video_url": video_url,
+                        "video_path": video_path,
+                        "fal_request_id": video_result.get("request_id", "unknown")
+                    }
+                
+                elif self.video_provider == "vertex_ai":
+                    # Vertex AI workflow - optimize and encode image
+                    logger.info(f"{self.agent_name}: Optimizing image for base64 encoding...")
+                    image_base64, final_size = optimize_image_for_base64(
+                        image_path=image_path,
+                        max_size_mb=self.max_image_size_mb,
+                        output_format="JPEG",
+                        quality=85
+                    )
+                    logger.info(f"{self.agent_name}: Image optimized: {final_size / (1024*1024):.2f} MB")
+
+                    logger.info(f"{self.agent_name}: Calling Vertex AI Veo for video generation (this may take several minutes)...")
+                    logger.info(f"{self.agent_name}: Video duration: {duration_seconds}s, aspect ratio: {detected_aspect_ratio}")
+                    
+                    video_result = self._call_vertex_ai_veo(
+                        prompt=production_brief,  # Send full production brief
+                        image_base64=image_base64,
+                        duration=f"{duration_seconds}s",
+                        aspect_ratio=detected_aspect_ratio
+                    )
+
+                    # Save video from base64
+                    video_filename = f"{shot_id}.mp4"
+                    video_path_full = self.videos_dir / video_filename
+                    self.vertex_client.save_video_from_base64(
+                        video_result["video_base64"],
+                        video_path_full
+                    )
+                    
+                    # Get relative path
+                    try:
+                        video_path = str(video_path_full.relative_to(self.session_dir))
+                    except ValueError:
+                        video_path = str(video_path_full)
+                    
+                    video_result_metadata = {
+                        "video_url": None,  # No URL for Vertex AI
+                        "video_path": video_path,
+                        "vertex_operation": video_result.get("operation_name", "N/A")
+                    }
+                
+                else:
+                    raise ValueError(f"Unknown video_provider: {self.video_provider}")
+                
+                # Success - break loop
+                break
+                
+            except Exception as e:
+                logger.warning(f"{self.agent_name}: Video generation failed (attempt {attempt+1}/{self.max_retries}): {str(e)}")
+                if attempt == self.max_retries - 1:
+                    raise
 
         # Prepare result
         try:
@@ -573,15 +699,16 @@ class VideoDialogueAgent(BaseAgent):
             "shot_id": shot_id,
             "shot_type": shot_type,
             "image_path": shot["image_path"],
-            "video_url": video_url,
-            "video_path": video_path,
             "production_brief_path": brief_rel_path,
             "duration_seconds": duration_seconds,
-            "video_prompt": video_prompt,
-            "fal_request_id": video_result.get("request_id", "unknown"),
+            "aspect_ratio": detected_aspect_ratio,
+            "video_provider": self.video_provider,
             "generated_at": datetime.now().isoformat(),
             "status": "success"
         }
+        
+        # Add provider-specific metadata
+        result.update(video_result_metadata)
 
         logger.info(f"{self.agent_name}: ✓ Video generated successfully for {shot_id}")
         return result
@@ -593,7 +720,8 @@ class VideoDialogueAgent(BaseAgent):
         shot_number: str,
         shot_description: str,
         character_details: str,
-        shot_type: str
+        shot_type: str,
+        start_frame: str
     ) -> Dict[str, Any]:
         """
         Generate video production brief using Gemini.
@@ -605,70 +733,105 @@ class VideoDialogueAgent(BaseAgent):
             shot_description: Shot description
             character_details: Character details string
             shot_type: "parent" or "child"
+            start_frame: Description of the starting frame
 
         Returns:
             Production brief dictionary
         """
-        # Format the prompt with context
-        formatted_prompt = self.prompt_template.format(
-            screenplay=screenplay,
-            shot_number=shot_number,
-            shot_description=shot_description,
-            character_details=character_details,
-            shot_type=shot_type
-        )
+        # Check if prompt template was loaded
+        if not self.prompt_template:
+            raise ValueError(f"Prompt template not loaded. Check that {self.prompt_file} exists.")
 
-        # Call Gemini with image and prompt (expecting YAML output per prompt)
-        response = self.client.client.models.generate_content(
-            model=self.gemini_model,
-            contents=[pil_image, formatted_prompt],
-            config=types.GenerateContentConfig(
-                temperature=self.temperature,
-                max_output_tokens=self.max_output_tokens
-            )
-        )
-
-        # Parse YAML response with Pydantic validation
-        response_text = response.text.strip()
-
-        # Remove markdown code fences if present
-        if response_text.startswith("```yaml") or response_text.startswith("```yml"):
-            # Remove language-specific fence
-            response_text = response_text.split('\n', 1)[1] if '\n' in response_text else response_text[6:]
-        elif response_text.startswith("```"):
-            response_text = response_text[3:]
-        if response_text.endswith("```"):
-            response_text = response_text[:-3]
-
-        response_text = response_text.strip()
-
-        # Parse and validate YAML with Pydantic
+        # Format the prompt with context (clip_duration will be filled by the model)
         try:
-            result = yaml.safe_load(response_text)
-            validated = ProductionBriefResponse(**result)
-            return validated.model_dump()
-        except yaml.YAMLError as e:
-            logger.error(f"{self.agent_name}: Invalid YAML from Gemini: {str(e)}")
-            logger.debug(f"Response text: {response_text[:500]}...")
-            raise ValueError(f"Invalid YAML response from Gemini: {str(e)}")
-        except ValidationError as e:
-            logger.error(f"{self.agent_name}: YAML validation failed: {str(e)}")
-            logger.debug(f"Response text: {response_text[:500]}...")
-            raise ValueError(f"Invalid production brief structure: {str(e)}")
+            formatted_prompt = self.prompt_template.format(
+                screenplay=screenplay,
+                shot_number=shot_number,
+                shot_description=shot_description,
+                character_details=character_details,
+                shot_type=shot_type,
+                clip_duration="4-8 seconds",  # Provide placeholder value
+                start_frame=start_frame
+            )
+        except KeyError as e:
+            raise ValueError(f"Missing placeholder in prompt template: {e}")
+
+        # Retry logic
+        max_retries = self.max_retries
+        last_error = None
+
+        for attempt in range(max_retries):
+            try:
+                # Call Gemini with image and prompt (expecting JSON output per prompt)
+                response = self.client.client.models.generate_content(
+                    model=self.gemini_model,
+                    contents=[pil_image, formatted_prompt],
+                    config=types.GenerateContentConfig(
+                        temperature=self.temperature,
+                        max_output_tokens=self.max_output_tokens,
+                        response_mime_type="application/json"
+                    )
+                )
+
+                # Parse JSON response with Pydantic validation
+                response_text = response.text
+
+                if not response_text:
+                    if attempt < max_retries - 1:
+                        logger.warning(f"{self.agent_name}: Empty response from Gemini (attempt {attempt+1}/{max_retries})")
+                        continue
+                    raise ValueError("Empty response from Gemini")
+
+                response_text = response_text.strip()
+
+                # Remove markdown code fences if present
+                if response_text.startswith("```json"):
+                    # Remove language-specific fence
+                    response_text = response_text.split('\n', 1)[1] if '\n' in response_text else response_text[7:]
+                elif response_text.startswith("```"):
+                    response_text = response_text[3:]
+                if response_text.endswith("```"):
+                    response_text = response_text[:-3]
+
+                response_text = response_text.strip()
+
+                # Parse and validate JSON with Pydantic
+                result = json.loads(response_text)
+                validated = ProductionBriefResponse(**result)
+                return validated.model_dump()
+
+            except (json.JSONDecodeError, ValidationError) as e:
+                last_error = e
+                if attempt < max_retries - 1:
+                    logger.warning(f"{self.agent_name}: Failed to parse brief (attempt {attempt+1}/{max_retries}): {str(e)}")
+                    continue
+            except Exception as e:
+                last_error = e
+                if attempt < max_retries - 1:
+                    logger.warning(f"{self.agent_name}: Generation error (attempt {attempt+1}/{max_retries}): {str(e)}")
+                    continue
+
+        # If we get here, all retries failed
+        logger.error(f"{self.agent_name}: Failed to generate valid production brief after {max_retries} attempts")
+        if last_error:
+            raise ValueError(f"Failed to generate production brief: {str(last_error)}")
+        raise ValueError("Failed to generate production brief (unknown error)")
 
     def _call_fal_api(
         self,
-        prompt: str,
+        prompt: Dict[str, Any],
         image_url: str,
-        duration: str
+        duration: str,
+        aspect_ratio: str
     ) -> Dict[str, Any]:
         """
         Call FAL AI API to generate video.
 
         Args:
-            prompt: Video generation prompt
+            prompt: Full production brief dictionary (from Gemini)
             image_url: URL of the starting image
             duration: Duration string (e.g., "6s")
+            aspect_ratio: Aspect ratio string (e.g., "16:9")
 
         Returns:
             FAL API response dictionary
@@ -681,15 +844,19 @@ class VideoDialogueAgent(BaseAgent):
             elif isinstance(update, self.fal_client.Queued):
                 logger.info(f"{self.agent_name}: FAL - Request queued, position: {getattr(update, 'position', 'unknown')}")
 
+        # Convert production brief to JSON string for FAL
+        prompt_text = json.dumps(prompt, indent=2)
+        logger.debug(f"{self.agent_name}: Sending full production brief to FAL ({len(prompt_text)} chars)")
+
         # Call FAL API
         logger.info(f"{self.agent_name}: Submitting to FAL queue...")
         try:
             result = self.fal_client.subscribe(
                 "fal-ai/veo3.1/fast/image-to-video",
                 arguments={
-                    "prompt": prompt,
+                    "prompt": prompt_text,
                     "image_url": image_url,
-                    "aspect_ratio": "auto",
+                    "aspect_ratio": aspect_ratio,
                     "duration": duration,
                     "generate_audio": self.generate_audio,
                     "resolution": self.video_resolution
@@ -701,4 +868,37 @@ class VideoDialogueAgent(BaseAgent):
             return result
         except Exception as e:
             logger.error(f"{self.agent_name}: FAL API error: {str(e)}")
+            raise
+
+    def _call_vertex_ai_veo(
+        self,
+        prompt: Dict[str, Any],
+        image_base64: str,
+        duration: str,
+        aspect_ratio: str
+    ) -> Dict[str, Any]:
+        """
+        Call Vertex AI Veo API to generate video.
+
+        Args:
+            prompt: Full production brief dictionary (from Gemini)
+            image_base64: Base64-encoded starting image
+            duration: Duration string (e.g., "6s")
+            aspect_ratio: Aspect ratio string (e.g., "16:9")
+
+        Returns:
+            Vertex AI API response dictionary with video_base64
+        """
+        logger.info(f"{self.agent_name}: Submitting to Vertex AI Veo...")
+        try:
+            result = self.vertex_client.generate_video(
+                prompt=prompt,
+                image_base64=image_base64,
+                aspect_ratio=aspect_ratio,
+                duration=duration
+            )
+            logger.info(f"{self.agent_name}: Vertex AI Veo - Video generation completed!")
+            return result
+        except Exception as e:
+            logger.error(f"{self.agent_name}: Vertex AI Veo error: {str(e)}")
             raise

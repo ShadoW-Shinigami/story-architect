@@ -337,15 +337,41 @@ Generate a clear, detailed portrait of this character.
                 try:
                     fal_model = self.config.get(
                         "fal_text_to_image_model",
-                        "fal-ai/bytedance/seedream/v4/text-to-image"
+                        "fal-ai/nano-banana-pro"
                     )
+                    
+                    # Calculate dimensions based on config or default to 1024 (1K)
+                    # We strictly enforce 1:1 aspect ratio for characters as requested
+                    resolution = self.config.get("resolution", "1K")
+                    
+                    if resolution == "4K":
+                        width = 3840 # or 4096
+                        height = 3840
+                    elif resolution == "2K":
+                        width = 2048
+                        height = 2048
+                    else: # Default or 1K
+                        width = 1024
+                        height = 1024
+                        
+                    # If using Seedream directly, check for legacy width/height config
+                    # but override to ensure 1:1 if they differ significantly
+                    if "seedream" in fal_model:
+                        cfg_width = self.config.get("width")
+                        cfg_height = self.config.get("height")
+                        if cfg_width and cfg_height:
+                            # Use the smaller dimension for both to ensure square
+                            dim = min(cfg_width, cfg_height)
+                            width = dim
+                            height = dim
 
-                    # Use 1024x1024 for character portraits (1:1 aspect ratio)
+                    logger.debug(f"Generating character at {width}x{height} (1:1)")
+
                     pil_image, seed = generate_with_fal_text_to_image(
                         prompt=prompt,
                         model=fal_model,
-                        width=1024,
-                        height=1024,
+                        width=width,
+                        height=height,
                         num_images=1,
                         enable_safety_checker=True,
                         enhance_prompt_mode="standard"

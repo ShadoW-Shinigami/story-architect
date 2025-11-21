@@ -13,13 +13,54 @@ gemini:
   timeout: 300  # seconds
 
   # Authentication Mode
-  use_vertex_ai: false  # Set to true to use Vertex AI instead of direct API
+  use_vertex_ai: true  # Set to true to use Vertex AI instead of direct API
 
   # Vertex AI Configuration (only used when use_vertex_ai: true)
   vertex_ai:
     project_id: ""  # Set via GOOGLE_CLOUD_PROJECT env var or here
-    location: "us-central1"  # Options: us-central1, us-east1, europe-west1, asia-northeast1, global
+    location: "global"  # Options: us-central1, us-east1, europe-west1, asia-northeast1, global
     credentials_file: "google-credentials.json"  # Path to service account JSON file
+
+
+# ==========================================
+# GLOBAL IMAGE GENERATION SETTINGS
+# ==========================================
+
+# --- 1. Model Definitions ---
+# These sections define the available configurations. 
+# You can leave them all uncommented.
+
+# Option 1: FAL - Seedream (Default)
+provider_fal_seedream: &fal_seedream_config
+  image_provider: "fal"
+  fal_text_to_image_model: "fal-ai/bytedance/seedream/v4/text-to-image"
+  fal_edit_model: "fal-ai/bytedance/seedream/v4/edit"
+  # Seedream specific params
+  width: 3840
+  height: 2160
+
+# Option 2: FAL - Nano Banana Pro
+provider_fal_nano: &fal_nano_config
+  image_provider: "fal"
+  fal_text_to_image_model: "fal-ai/nano-banana-pro"
+  fal_edit_model: "fal-ai/nano-banana-pro/edit"
+  # Nano Banana specific params
+  resolution: "2K"       # Options: "1K", "2K", "4K"
+  aspect_ratio: "16:9"   # Options: "16:9", "1:1", "21:9", "3:2", "4:3", "9:16"
+
+# Option 3: Google Gemini
+provider_gemini: &gemini_image_config
+  image_provider: "gemini"
+  model: "gemini-2.5-flash-image"
+  aspect_ratio: "16:9"
+  image_size: "2K"
+
+# --- 2. Active Configuration ---
+# Change the pointer (e.g. *fal_nano_config) below to switch providers.
+# This is the ONLY line you need to change to switch models.
+active_image_config: &global_image_settings
+  <<: *fal_nano_config
+
 
 # Agent Configurations
 agents:
@@ -60,30 +101,23 @@ agents:
     name: "Character Creator"
     enabled: true
     temperature: 0.6
-    model: "gemini-2.5-flash-image"
-    aspect_ratio: "1:1"
-    image_size: "2K"
     grid_aspect_ratio: "16:9"
     prompt_file: "prompts/agent_5_prompt.txt"
-    # Image Provider Settings (gemini or fal)
-    image_provider: "fal"
-    fal_text_to_image_model: "fal-ai/bytedance/seedream/v4/text-to-image"
+    # Inherit global image settings
+    <<: *global_image_settings
+    # Override specifically for characters (usually 1:1) if needed
+    aspect_ratio: "1:1" 
 
   agent_6:
     name: "Parent Image Generator"
     enabled: true
     temperature: 0.7
-    model: "gemini-2.5-flash-image"
-    aspect_ratio: "16:9"
-    image_size: "2K"
     max_retries: 3
     prompt_file: "prompts/agent_6_prompt.txt"
-    use_prompt_optimizer: true  # Use Gemini Pro 2.5 to optimize prompts before image generation
+    use_prompt_optimizer: true
     optimizer_prompt_file: "prompts/agent_6_optimizer_prompt.txt"
-    # Image Provider Settings (gemini or fal)
-    image_provider: "fal"
-    fal_text_to_image_model: "fal-ai/bytedance/seedream/v4/text-to-image"
-    fal_edit_model: "fal-ai/bytedance/seedream/v4/edit"
+    # Inherit global image settings
+    <<: *global_image_settings
 
   agent_7:
     name: "Parent Verification"
@@ -95,25 +129,20 @@ agents:
     soft_failure_mode: true
     verification_prompt_file: "prompts/agent_7_verification_prompt.txt"
     modifier_prompt_file: "prompts/agent_7_prompt_modifier.txt"
-    agent_6_prompt_file: "prompts/agent_6_prompt.txt"  # For regeneration (uses Agent 6's generation template)
-    # Image Provider Settings (gemini or fal)
-    image_provider: "fal"
-    fal_text_to_image_model: "fal-ai/bytedance/seedream/v4/text-to-image"
-    fal_edit_model: "fal-ai/bytedance/seedream/v4/edit"
+    agent_6_prompt_file: "prompts/agent_6_prompt.txt"
+    # Inherit global image settings
+    <<: *global_image_settings
 
   agent_8:
     name: "Child Image Generator"
     enabled: true
     temperature: 0.7
-    model: "gemini-2.5-flash-image"
-    aspect_ratio: "16:9"
     max_retries: 3
     prompt_file: "prompts/agent_8_prompt.txt"
-    use_prompt_optimizer: true  # Use Gemini Pro 2.5 for precise edit prompts
+    use_prompt_optimizer: true
     optimizer_prompt_file: "prompts/agent_8_optimizer_prompt.txt"
-    # Image Provider Settings (gemini or fal)
-    image_provider: "fal"
-    fal_edit_model: "fal-ai/bytedance/seedream/v4/edit"
+    # Inherit global image settings
+    <<: *global_image_settings
 
   agent_9:
     name: "Child Verification"
@@ -126,10 +155,9 @@ agents:
     soft_failure_mode: true
     verification_prompt_file: "prompts/agent_9_verification_prompt.txt"
     modifier_prompt_file: "prompts/agent_9_prompt_modifier.txt"
-    agent_8_prompt_file: "prompts/agent_8_prompt.txt"  # For regeneration (uses Agent 8's edit template)
-    # Image Provider Settings (gemini or fal)
-    image_provider: "fal"
-    fal_edit_model: "fal-ai/bytedance/seedream/v4/edit"
+    agent_8_prompt_file: "prompts/agent_8_prompt.txt"
+    # Inherit global image settings
+    <<: *global_image_settings
 
   agent_10:
     name: "Video Dialogue Generator"
@@ -138,12 +166,24 @@ agents:
     max_output_tokens: 8192
     model: "gemini-3-pro-preview"
     prompt_file: "prompts/agent_10_prompt.txt"
-    # FAL AI Configuration - API key loaded from FAL_KEY environment variable (see .env file)
-    # fal_api_key: "${FAL_KEY}"  # Commented out - using environment variable instead
+    
+    # Video Provider: "fal" or "vertex_ai"
+    video_provider: "vertex_ai"  # Options: fal, vertex_ai
+    
+    # FAL settings (when video_provider: fal)
     video_resolution: "1080p"  # Options: 720p, 1080p
-    generate_audio: true  # Generate audio with video
-    aspect_ratio: "auto"  # Options: auto, 16:9, 9:16, 1:1
-    fal_timeout: 3600  # Timeout in seconds (60 minutes) for video generation
+    generate_audio: true
+    fal_timeout: 3600
+    
+    # Vertex AI settings (when video_provider: vertex_ai)
+    vertex_ai_project_id: ""  # Set via GOOGLE_CLOUD_PROJECT env var or here
+    vertex_ai_location: "us-central1"  # Options: us-central1 (Veo is regional)
+    vertex_ai_model_id: "veo-3.1-fast-generate-preview"  # Veo 3.1 Fast model ID
+    vertex_ai_credentials_file: "google-credentials.json"  # Path to service account JSON
+    
+    # Common settings (both providers)
+    aspect_ratio: "auto"  # Options: auto, 16:9, 9:16, 1:1 (auto = detect from image)
+    max_image_size_mb: 7.0  # Maximum image size for base64 encoding (Vertex AI)
 
 # Output Settings
 output:

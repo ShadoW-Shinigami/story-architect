@@ -19,6 +19,7 @@ from core.validators import ChildShotsOutput, VerificationResult
 from core.image_utils import save_image_with_metadata
 from utils.fal_helper import (
     generate_with_fal_edit,
+    resolve_dimensions_from_config,
     is_fal_available
 )
 
@@ -289,7 +290,7 @@ class ChildVerificationAgent(BaseAgent):
                 contents.append(verification_prompt)
 
                 response = self.client.client.models.generate_content(
-                    model="gemini-2.5-pro",
+                    model="gemini-3-pro-preview",
                     contents=contents,
                     config=types.GenerateContentConfig(
                         temperature=0.3,
@@ -468,9 +469,13 @@ class ChildVerificationAgent(BaseAgent):
                 image_provider = "gemini"
             else:
                 try:
+                    # Calculate dimensions from config
+                    width, height = resolve_dimensions_from_config(self.config, default_aspect="16:9")
+                    logger.debug(f"Using dimensions: {width}x{height}")
+
                     fal_model = self.config.get(
                         "fal_edit_model",
-                        "fal-ai/bytedance/seedream/v4/edit"
+                        "fal-ai/nano-banana-pro/edit"
                     )
                     logger.debug(f"Using fal edit mode for regeneration (type: {edit_type})")
 
@@ -497,8 +502,8 @@ class ChildVerificationAgent(BaseAgent):
                             prompt=final_prompt,
                             image_paths=image_paths,
                             model=fal_model,
-                            width=3840,
-                            height=2160,
+                            width=width,
+                            height=height,
                             num_images=1,
                             enable_safety_checker=True,
                             enhance_prompt_mode="standard"
@@ -699,9 +704,9 @@ class ChildVerificationAgent(BaseAgent):
         )
 
         try:
-            logger.debug(f"{shot_id}: Rewriting prompt with Pro 2.5 based on patterns...")
+            logger.debug(f"{shot_id}: Rewriting prompt with Pro 3.0 based on patterns...")
             response = self.client.client.models.generate_content(
-                model="gemini-2.5-pro",
+                model="gemini-3-pro-preview",
                 contents=[modification_prompt],
                 config=types.GenerateContentConfig(
                     temperature=0.2,

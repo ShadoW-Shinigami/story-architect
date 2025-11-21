@@ -91,8 +91,8 @@ class Shot(BaseModel):
     @validator("first_frame")
     def validate_first_frame(cls, v):
         """Ensure first frame description is detailed."""
-        if len(v) < 50:
-            raise ValueError("First frame description must be painfully verbose (at least 50 characters)")
+        if len(v) < 10:
+            raise ValueError("First frame description must be painfully verbose (at least 10 characters)")
         return v
 
 

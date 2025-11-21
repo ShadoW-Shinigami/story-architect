@@ -19,6 +19,7 @@ from core.image_utils import save_image_with_metadata
 from utils.fal_helper import (
     generate_with_fal_text_to_image,
     generate_with_fal_edit,
+    resolve_dimensions_from_config,
     is_fal_available
 )
 
@@ -280,10 +281,10 @@ class ParentImageGeneratorAgent(BaseAgent):
         )
 
         try:
-            # Use Pro 2.5 to optimize
-            logger.debug("Optimizing prompt with Gemini Pro 2.5...")
+            # Use Pro 3.0 to optimize
+            logger.debug("Optimizing prompt with Gemini 3.0 Pro...")
             response = self.client.client.models.generate_content(
-                model="gemini-2.5-pro",
+                model="gemini-3-pro-preview",
                 contents=[optimization_prompt],
                 config=types.GenerateContentConfig(
                     temperature=0.3,  # Low temp for consistent optimization
@@ -400,11 +401,15 @@ This character must be placed in the scene exactly as they appear in the grid, m
                 image_provider = "gemini"
             else:
                 try:
+                    # Calculate dimensions from config
+                    width, height = resolve_dimensions_from_config(self.config, default_aspect="16:9")
+                    logger.debug(f"Using dimensions: {width}x{height}")
+
                     if grid_image:
                         # Use fal edit model with grid as input (transformation)
                         fal_model = self.config.get(
                             "fal_edit_model",
-                            "fal-ai/bytedance/seedream/v4/edit"
+                            "fal-ai/nano-banana-pro/edit"
                         )
                         logger.debug("Using fal edit mode with grid transformation")
 
@@ -419,8 +424,8 @@ This character must be placed in the scene exactly as they appear in the grid, m
                                 prompt=optimized_prompt,
                                 image_paths=[tmp_grid_path],
                                 model=fal_model,
-                                width=3840,
-                                height=2160,
+                                width=width,
+                                height=height,
                                 num_images=1,
                                 enable_safety_checker=True,
                                 enhance_prompt_mode="standard"
@@ -433,15 +438,15 @@ This character must be placed in the scene exactly as they appear in the grid, m
                         # Use fal text-to-image model (no grid)
                         fal_model = self.config.get(
                             "fal_text_to_image_model",
-                            "fal-ai/bytedance/seedream/v4/text-to-image"
+                            "fal-ai/nano-banana-pro"
                         )
                         logger.debug("Using fal text-to-image mode")
 
                         generated_image, fal_seed = generate_with_fal_text_to_image(
                             prompt=optimized_prompt,
                             model=fal_model,
-                            width=3840,
-                            height=2160,
+                            width=width,
+                            height=height,
                             num_images=1,
                             enable_safety_checker=True,
                             enhance_prompt_mode="standard"

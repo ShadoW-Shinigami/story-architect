@@ -18,6 +18,7 @@ from core.validators import ChildShotsOutput
 from core.image_utils import save_image_with_metadata
 from utils.fal_helper import (
     generate_with_fal_edit,
+    resolve_dimensions_from_config,
     is_fal_available
 )
 
@@ -302,10 +303,10 @@ class ChildImageGeneratorAgent(BaseAgent):
         )
 
         try:
-            # Use Pro 2.5 to optimize
-            logger.debug(f"Optimizing edit prompt with Pro 2.5 (edit_type: {edit_type})...")
+            # Use Pro 3.0 to optimize
+            logger.debug(f"Optimizing edit prompt with Pro 3.0 (edit_type: {edit_type})...")
             response = self.client.client.models.generate_content(
-                model="gemini-2.5-pro",
+                model="gemini-3-pro-preview",
                 contents=[optimization_prompt],
                 config=types.GenerateContentConfig(
                     temperature=0.1,  # Very low temp for precise, consistent edit instructions
@@ -402,9 +403,13 @@ When editing the parent shot, identify this character by these exact physical tr
                 image_provider = "gemini"
             else:
                 try:
+                    # Calculate dimensions from config
+                    width, height = resolve_dimensions_from_config(self.config, default_aspect="16:9")
+                    logger.debug(f"Using dimensions: {width}x{height}")
+
                     fal_model = self.config.get(
                         "fal_edit_model",
-                        "fal-ai/bytedance/seedream/v4/edit"
+                        "fal-ai/nano-banana-pro/edit"
                     )
                     logger.debug(f"Using fal edit mode (type: {edit_type})")
 
@@ -431,8 +436,8 @@ When editing the parent shot, identify this character by these exact physical tr
                             prompt=optimized_prompt,
                             image_paths=image_paths,
                             model=fal_model,
-                            width=3840,
-                            height=2160,
+                            width=width,
+                            height=height,
                             num_images=1,
                             enable_safety_checker=True,
                             enhance_prompt_mode="standard"
