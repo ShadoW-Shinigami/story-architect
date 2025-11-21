@@ -131,7 +131,8 @@ class ShotGroupingAgent(BaseAgent):
         response = self.client.generate(
             prompt=prompt,
             temperature=self.temperature,
-            max_output_tokens=self.max_output_tokens
+            max_output_tokens=self.max_output_tokens,
+            model_name=self.config.get("model")
         )
 
         # Parse JSON response
@@ -179,7 +180,8 @@ class ShotGroupingAgent(BaseAgent):
             prompt=prompt,
             error_feedback=error_feedback,
             temperature=self.temperature,
-            max_output_tokens=self.max_output_tokens
+            max_output_tokens=self.max_output_tokens,
+            model_name=self.config.get("model")
         )
 
         # Parse JSON response

@@ -183,6 +183,7 @@ class GeminiClient:
         max_output_tokens: int = 8192,
         system_instruction: Optional[str] = None,
         retry_on_error: bool = True,
+        model_name: Optional[str] = None,
         **kwargs
     ) -> str:
         """
@@ -217,9 +218,12 @@ class GeminiClient:
             try:
                 logger.debug(f"Attempt {attempt + 1}/{retries} for Gemini API call")
 
+                # Choose model: per-call override or client default
+                model_to_use = model_name or self.model_name
+
                 # New SDK pattern - use client.models.generate_content
                 response = self.client.models.generate_content(
-                    model=self.model_name,
+                    model=model_to_use,
                     contents=prompt,
                     config=generation_config
                 )

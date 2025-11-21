@@ -87,7 +87,7 @@ class VertexVeoClient:
         prompt: Dict[str, Any],
         image_base64: str,
         aspect_ratio: str = "16:9",
-        duration: str = "6s"
+        duration_seconds: int = 6,
     ) -> Dict[str, Any]:
         """
         Generate video using Vertex AI Veo 3.1 Fast.
@@ -118,12 +118,19 @@ class VertexVeoClient:
         # Call generate_videos with prepared image
         logger.info("Submitting video generation request...")
         try:
+            # Ensure duration is a positive integer
+            if duration_seconds <= 0:
+                logger.warning(f"Invalid duration_seconds={duration_seconds}, defaulting to 6")
+                duration_seconds = 6
+
             operation = self.client.models.generate_videos(
                 model=self.model_id,
                 prompt=text_prompt,
                 image=image_input,
                 config=types.GenerateVideosConfig(
-                    number_of_videos=1
+                    number_of_videos=1,
+                    duration_seconds=duration_seconds,
+                    aspect_ratio=aspect_ratio,
                 )
             )
             
@@ -153,7 +160,7 @@ class VertexVeoClient:
             
             return {
                 "video_base64": result_b64,
-                "duration": duration,
+                "duration": f"{duration_seconds}s",
                 "aspect_ratio": aspect_ratio,
                 "prompt_text": text_prompt,
                 "model": self.model_id,

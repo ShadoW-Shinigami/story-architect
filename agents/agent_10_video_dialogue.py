@@ -579,20 +579,34 @@ class VideoDialogueAgent(BaseAgent):
         with open(brief_path, 'w', encoding='utf-8') as f:
             json.dump(production_brief, f, indent=2, ensure_ascii=False)
 
-        # Extract duration from production brief
-        duration_seconds = production_brief.get("video_production_brief", {}).get(
+        # Extract requested duration from production brief
+        raw_duration = production_brief.get("video_production_brief", {}).get(
             "duration_seconds", 6
         )
 
-        # Round duration to nearest valid value (4, 6, or 8 seconds)
-        if duration_seconds <= 5:
-            duration_seconds = 4
-        elif duration_seconds <= 7:
-            duration_seconds = 6
-        else:
-            duration_seconds = 8
+        # Normalize to an integer number of seconds
+        try:
+            requested_duration_seconds = int(round(float(raw_duration)))
+        except (TypeError, ValueError):
+            logger.warning(
+                f"{self.agent_name}: Invalid duration_seconds in brief "
+                f"({raw_duration!r}), defaulting to 6s"
+            )
+            requested_duration_seconds = 6
 
-        logger.debug(f"{self.agent_name}: Duration rounded to {duration_seconds}s")
+        # For FAL, only 4s, 6s, 8s are supported. We normalize globally so both
+        # backends are consistent and clips stay within the 4–8s window.
+        if requested_duration_seconds <= 5:
+            effective_duration_seconds = 4
+        elif requested_duration_seconds <= 7:
+            effective_duration_seconds = 6
+        else:
+            effective_duration_seconds = 8
+
+        logger.info(
+            f"{self.agent_name}: Duration from brief: {requested_duration_seconds}s, "
+            f"normalized to {effective_duration_seconds}s for video generation"
+        )
 
         # Detect aspect ratio from image if set to "auto"
         if self.aspect_ratio == "auto":
@@ -614,12 +628,15 @@ class VideoDialogueAgent(BaseAgent):
                     logger.debug(f"{self.agent_name}: Image uploaded: {image_url}")
 
                     logger.info(f"{self.agent_name}: Calling FAL API for video generation (this may take several minutes)...")
-                    logger.info(f"{self.agent_name}: Video duration: {duration_seconds}s, aspect ratio: {detected_aspect_ratio}")
+                    logger.info(
+                        f"{self.agent_name}: Video duration (FAL): "
+                        f"{effective_duration_seconds}s, aspect ratio: {detected_aspect_ratio}"
+                    )
                     
                     video_result = self._call_fal_api(
                         prompt=production_brief,  # Send full production brief
                         image_url=image_url,
-                        duration=f"{duration_seconds}s",
+                        duration=f"{effective_duration_seconds}s",
                         aspect_ratio=detected_aspect_ratio
                     )
 
@@ -649,12 +666,15 @@ class VideoDialogueAgent(BaseAgent):
                     logger.info(f"{self.agent_name}: Image optimized: {final_size / (1024*1024):.2f} MB")
 
                     logger.info(f"{self.agent_name}: Calling Vertex AI Veo for video generation (this may take several minutes)...")
-                    logger.info(f"{self.agent_name}: Video duration: {duration_seconds}s, aspect ratio: {detected_aspect_ratio}")
+                    logger.info(
+                        f"{self.agent_name}: Video duration (Vertex AI): "
+                        f"{effective_duration_seconds}s, aspect_ratio: {detected_aspect_ratio}"
+                    )
                     
                     video_result = self._call_vertex_ai_veo(
                         prompt=production_brief,  # Send full production brief
                         image_base64=image_base64,
-                        duration=f"{duration_seconds}s",
+                        duration_seconds=effective_duration_seconds,
                         aspect_ratio=detected_aspect_ratio
                     )
 
@@ -700,7 +720,8 @@ class VideoDialogueAgent(BaseAgent):
             "shot_type": shot_type,
             "image_path": shot["image_path"],
             "production_brief_path": brief_rel_path,
-            "duration_seconds": duration_seconds,
+            "requested_duration_seconds": requested_duration_seconds,
+            "duration_seconds": effective_duration_seconds,
             "aspect_ratio": detected_aspect_ratio,
             "video_provider": self.video_provider,
             "generated_at": datetime.now().isoformat(),
@@ -709,6 +730,47 @@ class VideoDialogueAgent(BaseAgent):
         
         # Add provider-specific metadata
         result.update(video_result_metadata)
+
+        # Write per-shot JSON metadata next to the video file
+        try:
+            video_path_value = result.get("video_path")
+            if video_path_value:
+                # Resolve full video path and construct JSON path with same stem
+                video_full_path = self.session_dir / video_path_value
+                video_json_path = video_full_path.with_suffix(".json")
+
+                shot_meta = {
+                    "shot_id": shot_id,
+                    "shot_type": shot_type,
+                    "image_path": shot["image_path"],
+                    "video_path": video_path_value,
+                    "video_provider": self.video_provider,
+                    "requested_duration_seconds": requested_duration_seconds,
+                    "duration_seconds": effective_duration_seconds,
+                    "aspect_ratio": detected_aspect_ratio,
+                    "production_brief_path": brief_rel_path,
+                    # Store the exact structured prompt sent to the video backend
+                    "prompt_used": production_brief,
+                }
+
+                video_json_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(video_json_path, "w", encoding="utf-8") as jf:
+                    json.dump(shot_meta, jf, indent=2, ensure_ascii=False)
+
+                logger.debug(
+                    f"{self.agent_name}: Wrote per-shot metadata JSON to "
+                    f"{video_json_path.relative_to(self.session_dir)}"
+                )
+            else:
+                logger.warning(
+                    f"{self.agent_name}: No video_path for {shot_id}, "
+                    "skipping per-shot JSON metadata file"
+                )
+        except Exception as e:
+            logger.warning(
+                f"{self.agent_name}: Failed to write per-shot JSON metadata for "
+                f"{shot_id}: {e}"
+            )
 
         logger.info(f"{self.agent_name}: ✓ Video generated successfully for {shot_id}")
         return result
@@ -874,7 +936,7 @@ class VideoDialogueAgent(BaseAgent):
         self,
         prompt: Dict[str, Any],
         image_base64: str,
-        duration: str,
+        duration_seconds: int,
         aspect_ratio: str
     ) -> Dict[str, Any]:
         """
@@ -883,7 +945,7 @@ class VideoDialogueAgent(BaseAgent):
         Args:
             prompt: Full production brief dictionary (from Gemini)
             image_base64: Base64-encoded starting image
-            duration: Duration string (e.g., "6s")
+            duration_seconds: Effective duration in seconds (already normalized)
             aspect_ratio: Aspect ratio string (e.g., "16:9")
 
         Returns:
@@ -895,7 +957,7 @@ class VideoDialogueAgent(BaseAgent):
                 prompt=prompt,
                 image_base64=image_base64,
                 aspect_ratio=aspect_ratio,
-                duration=duration
+                duration_seconds=duration_seconds,
             )
             logger.info(f"{self.agent_name}: Vertex AI Veo - Video generation completed!")
             return result

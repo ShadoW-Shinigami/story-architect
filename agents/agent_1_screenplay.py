@@ -110,7 +110,8 @@ class ScreenplayAgent(BaseAgent):
         screenplay = self.client.generate(
             prompt=prompt,
             temperature=self.temperature,
-            max_output_tokens=self.max_output_tokens
+            max_output_tokens=self.max_output_tokens,
+            model_name=self.config.get("model")
         )
 
         logger.info(
@@ -145,7 +146,8 @@ class ScreenplayAgent(BaseAgent):
             prompt=prompt,
             error_feedback=error_feedback,
             temperature=self.temperature,
-            max_output_tokens=self.max_output_tokens
+            max_output_tokens=self.max_output_tokens,
+            model_name=self.config.get("model")
         )
 
         return screenplay
