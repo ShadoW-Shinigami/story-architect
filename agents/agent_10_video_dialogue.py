@@ -534,9 +534,10 @@ class VideoDialogueAgent(BaseAgent):
 
         # Get shot details from shot_breakdown
         shot_details = shots_by_id.get(shot_id, {})
-
+        
         # Extract shot information
-        screenplay = shot_details.get("dialogue", "") or shot_details.get("action", "")
+        shot_dialogue = (shot_details.get("dialogue") or "").strip()
+        screenplay = shot_dialogue or shot_details.get("action", "")
         shot_number = shot_details.get("shot_number", shot_id)
         shot_description = shot_details.get("description", "") or shot_details.get("shot_type", "")
         characters_in_shot = shot_details.get("characters", [])
@@ -571,7 +572,8 @@ class VideoDialogueAgent(BaseAgent):
             shot_description=shot_description,
             character_details=character_details,
             shot_type=shot_type,
-            start_frame=shot_details_full  # Add missing parameter
+            start_frame=shot_details_full,  # Add missing parameter
+            shot_dialogue=shot_dialogue,
         )
 
         # Save production brief as JSON
@@ -775,6 +777,49 @@ class VideoDialogueAgent(BaseAgent):
         logger.info(f"{self.agent_name}: ✓ Video generated successfully for {shot_id}")
         return result
 
+    def _dialogue_is_covered(self, shot_dialogue: str, brief: Dict[str, Any]) -> bool:
+        """
+        Check whether the Agent 3 dialogue line appears in at least one audio_event.
+
+        This is a soft guardrail to ensure that when Agent 3 provides a dialogue
+        line like `LOKI: Must you announce your thirst`, the production brief
+        actually speaks it at least once in the temporal_action_plan.
+        """
+        dialog = (shot_dialogue or "").strip()
+        if not dialog:
+            # Nothing to enforce
+            return True
+
+        # Try to separate speaker and line (e.g. 'LOKI: Must you announce your thirst')
+        speaker, _, line = dialog.partition(":")
+        speaker = speaker.strip()
+        line = line.strip()
+
+        try:
+            vp = brief.get("video_production_brief", {})
+            segments = vp.get("temporal_action_plan", []) or []
+        except AttributeError:
+            return False
+
+        dialog_lower = dialog.lower()
+        line_lower = line.lower() if line else ""
+        speaker_lower = speaker.lower() if speaker else ""
+
+        for seg in segments:
+            audio = (seg.get("audio_event") or "").strip()
+            audio_lower = audio.lower()
+
+            # Strongest case: full dialogue line appears
+            if dialog_lower and dialog_lower in audio_lower:
+                return True
+
+            # Fallback: core line (after colon) plus speaker name both appear
+            if line_lower and line_lower in audio_lower:
+                if not speaker_lower or speaker_lower in audio_lower:
+                    return True
+
+        return False
+
     def _generate_production_brief(
         self,
         pil_image: Image.Image,
@@ -783,7 +828,8 @@ class VideoDialogueAgent(BaseAgent):
         shot_description: str,
         character_details: str,
         shot_type: str,
-        start_frame: str
+        start_frame: str,
+        shot_dialogue: str,
     ) -> Dict[str, Any]:
         """
         Generate video production brief using Gemini.
@@ -821,13 +867,29 @@ class VideoDialogueAgent(BaseAgent):
         # Retry logic
         max_retries = self.max_retries
         last_error = None
-
+        last_valid_brief = None
+        
         for attempt in range(max_retries):
             try:
+                # For retries, append explicit feedback if dialogue was omitted previously
+                if attempt == 0 or not shot_dialogue.strip():
+                    prompt_for_attempt = formatted_prompt
+                else:
+                    prompt_for_attempt = (
+                        formatted_prompt
+                        + "\n\nIMPORTANT: The input dialogue line below must appear "
+                          "exactly once in one of the audio_event fields in "
+                          "temporal_action_plan. Your previous brief omitted this line "
+                          "or made the shot fully silent. Regenerate the JSON, keeping "
+                          "the same visual plan, but include that spoken line once in "
+                          "the appropriate time segment.\n\n"
+                        + shot_dialogue
+                    )
+
                 # Call Gemini with image and prompt (expecting JSON output per prompt)
                 response = self.client.client.models.generate_content(
                     model=self.gemini_model,
-                    contents=[pil_image, formatted_prompt],
+                    contents=[pil_image, prompt_for_attempt],
                     config=types.GenerateContentConfig(
                         temperature=self.temperature,
                         max_output_tokens=self.max_output_tokens,
@@ -860,17 +922,53 @@ class VideoDialogueAgent(BaseAgent):
                 # Parse and validate JSON with Pydantic
                 result = json.loads(response_text)
                 validated = ProductionBriefResponse(**result)
-                return validated.model_dump()
+                brief_dict = validated.model_dump()
+
+                # If there is no dialogue for this shot, accept immediately
+                if not shot_dialogue.strip():
+                    return brief_dict
+
+                # Enforce that the dialogue line from Agent 3 appears in at least
+                # one audio_event. Soft-fail after all retries.
+                if self._dialogue_is_covered(shot_dialogue, brief_dict):
+                    return brief_dict
+
+                # Dialogue missing from brief
+                last_valid_brief = brief_dict
+                logger.warning(
+                    f"{self.agent_name}: Brief missing dialogue line for shot "
+                    f"{shot_number!r} (attempt {attempt+1}/{max_retries}). "
+                    f"Expected line: {shot_dialogue!r}"
+                )
+
+                # If this was the last attempt, soft-fail and return the best effort
+                if attempt == max_retries - 1:
+                    logger.warning(
+                        f"{self.agent_name}: Soft failure - using brief without explicit "
+                        f"dialogue after {max_retries} attempts"
+                    )
+                    return last_valid_brief or brief_dict
+
+                # Otherwise, retry with explicit feedback appended to the prompt
+                continue
 
             except (json.JSONDecodeError, ValidationError) as e:
+                # Hard failure: invalid JSON/structure, keep existing behaviour
                 last_error = e
                 if attempt < max_retries - 1:
-                    logger.warning(f"{self.agent_name}: Failed to parse brief (attempt {attempt+1}/{max_retries}): {str(e)}")
+                    logger.warning(
+                        f"{self.agent_name}: Failed to parse brief "
+                        f"(attempt {attempt+1}/{max_retries}): {str(e)}"
+                    )
                     continue
             except Exception as e:
+                # Hard failure: API or other runtime error
                 last_error = e
                 if attempt < max_retries - 1:
-                    logger.warning(f"{self.agent_name}: Generation error (attempt {attempt+1}/{max_retries}): {str(e)}")
+                    logger.warning(
+                        f"{self.agent_name}: Generation error "
+                        f"(attempt {attempt+1}/{max_retries}): {str(e)}"
+                    )
                     continue
 
         # If we get here, all retries failed
