@@ -231,13 +231,21 @@ agents:
     j_cut_max_offset: 1.0  # max seconds audio can start before video
     l_cut_max_offset: 1.0  # max seconds audio can continue after video
 
+    # Professional Audio Enhancement (Tier 1)
+    normalize_loudness: true  # Loudness normalization (streaming standard)
+    target_loudness: -16  # Target LUFS (-16 for streaming, -23 for broadcast)
+    audio_compression: true  # Dynamic range compression for consistent volume
+    compression_ratio: 3  # Compression ratio (1=none, 3=gentle, 6=aggressive)
+    dialogue_enhancement: true  # EQ boost for voice clarity
+    eq_voice_boost_db: 3  # Voice frequency boost in dB (1-6 recommended)
+
     # Output Settings (use "auto" to match input video properties)
     output_resolution: "auto"  # Match input video resolution (or specify like "1920x1080")
     output_fps: "auto"  # Match input video fps (or specify like 24, 30, 60)
     output_aspect_ratio: "auto"  # Match input video aspect ratio (or specify like "16:9")
 
     # Editing Strategy
-    skip_gemini_edl: true  # Set to true to bypass Gemini and use heuristic editing directly
+    skip_gemini_edl: false  # Set to true to bypass Gemini and use heuristic editing directly
     max_edl_retries: 3  # retries for Gemini EDL generation (if skip_gemini_edl is false)
     use_heuristic_fallback: true  # use simple editing if Gemini fails
 

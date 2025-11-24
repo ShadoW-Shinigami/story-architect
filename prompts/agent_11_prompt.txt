@@ -120,11 +120,55 @@ Shot B: Shows another character's reaction
 - **Maximum**: 4.0 seconds
 - These create emotional beats and pacing variety
 
-### 7. Pacing Guidelines
-- **Fast dialogue exchanges**: Minimal gaps (0.2s between shots)
-- **Emotional beats**: Allow 0.5-1.0s pauses
+### 7. Pacing Guidelines & Shot Duration Variance (CRITICAL)
+
+**Shot Duration Rules (Create Natural Rhythm):**
+- **NEVER use uniform shot lengths** - This creates mechanical, unnatural pacing
+- **Vary shot duration based on content and emotion:**
+  - Fast-paced dialogue / arguments: 1.5-3.0 seconds
+  - Normal conversation: 2.5-4.5 seconds
+  - Emotional moments / confessions: 3.5-6.0 seconds
+  - Reactions / pauses: 2.0-4.0 seconds
+  - Establishing shots: 4.0-6.0 seconds
+- **Within a single scene, vary shot lengths** - Short (2s), medium (4s), long (5s) creates professional rhythm
+
+**Dialogue Pacing:**
+- **Fast dialogue exchanges**: Minimal gaps (0.2s between shots), quick cuts
+- **Emotional beats**: Allow 0.5-1.0s pauses after important lines
 - **Scene endings**: Can have longer pauses (up to 1.5s) before scene transition
-- **Avoid dead air**: No pauses longer than 1.5s within a scene
+- **Avoid dead air**: No pauses longer than 1.5s within a scene unless dramatically justified
+
+**Emotional Intensity Pacing (Use Dialogue Content as Guide):**
+- **High emotion** (arguments, revelations, confessions):
+  - Longer shots (4-6s) to let performances breathe
+  - Longer pauses after dramatic lines (0.7-1.0s)
+  - More L-cuts to show reactions and impact
+  - Hold on reactions longer (3-4s)
+- **Low emotion** (casual chat, exposition):
+  - Shorter shots (2-3s) for snappy pacing
+  - Minimal pauses (0.2-0.3s)
+  - More J-cuts for energy and flow
+  - Quick reactions (1.5-2.5s)
+- **Medium emotion** (normal conversation):
+  - Mixed shot lengths (2.5-4.5s)
+  - Natural pauses (0.3-0.5s)
+  - Balance of J-cuts and L-cuts
+
+### 8. MANDATORY CONSTRAINTS (NEVER VIOLATE)
+
+**Dialogue Protection:**
+- ✅ **NEVER cut off dialogue mid-sentence** - trim_end MUST be >= speech_end
+- ✅ **Honor speech boundaries** - Use speech_start and speech_end from audio_metadata
+- ✅ **If dialogue exists**, minimum padding: speech_end + 0.2s
+
+**Shot Duration Limits:**
+- ✅ **trim_end MUST be <= original video duration** - Cannot extend beyond source
+- ✅ **Respect min_shot_duration** (1.5s) and max_shot_duration (12.0s)
+- ✅ **If shot is too short** after trimming, use more of the original footage
+
+**Audio Integrity:**
+- ✅ **Don't trim into active speech** - Check words array from audio_metadata
+- ✅ **Preserve complete sentences** - Don't cut between words in mid-sentence
 
 ## OUTPUT FORMAT (STRICT JSON)
 
@@ -203,10 +247,15 @@ You MUST respond with ONLY valid JSON in this exact format:
   - `hard_cut`: Simple cut within scene (no offset)
 - **trim_start**: Seconds to trim from the START of the raw video file
 - **trim_end**: Timestamp where the video should END (not duration, but absolute time in the source file)
-- **audio_start_offset**: Audio offset in seconds
-  - 0.0 = synchronized (no offset)
-  - Negative (e.g., -0.5) = audio starts 0.5s before video cut (J-cut)
-  - Positive (e.g., 0.7) = audio continues 0.7s after video cut (L-cut)
+- **audio_start_offset**: Audio offset in seconds (TIMELINE OPERATION, NOT PER-CLIP)
+  - **0.0** = synchronized (no offset, hard cut)
+  - **Negative** (e.g., -0.5) = **J-CUT**: This shot's audio starts 0.5s BEFORE the visual cut to this shot
+    - Example: Shot B with `-0.5` means Shot B's audio starts while Shot A's video is still showing
+    - Creates anticipation and natural conversation flow
+  - **Positive** (e.g., 0.7) = **L-CUT**: Previous shot's audio CONTINUES 0.7s AFTER the visual cut to this shot
+    - Example: Shot B with `+0.7` means Shot A's audio keeps playing for 0.7s while Shot B's video shows
+    - Creates connection and shows reactions during dialogue
+  - **CRITICAL**: Offsets represent timeline overlaps between adjacent shots, not internal audio shifts
 - **transition**: Always "cut" for now (future: "fade", "dissolve")
 - **rationale**: Brief explanation of your editing decision (1 sentence)
 
@@ -214,16 +263,32 @@ You MUST respond with ONLY valid JSON in this exact format:
 
 Before finalizing your EDL, verify:
 
+**Scene Boundaries:**
 ✅ Every scene's first shot uses `edit_type: "hard_start"`
 ✅ No J-cuts or L-cuts across scene boundaries
+
+**Audio Offset Rules:**
 ✅ All `audio_start_offset` values for hard_start/hard_cut are 0.0
 ✅ J-cuts have negative `audio_start_offset` (-0.3 to -0.8)
 ✅ L-cuts have positive `audio_start_offset` (0.3 to 1.0)
+
+**Trim Validation (CRITICAL):**
 ✅ All `trim_start` values are >= 0.0
-✅ All `trim_end` values are <= original video duration
+✅ All `trim_end` values are <= original video duration (NEVER exceed source duration)
+✅ If shot has dialogue, `trim_end` >= `speech_end` (NEVER cut off speech)
 ✅ Trimmed shots are at least 1.5 seconds long
-✅ No pauses longer than 1.5s within scenes
+✅ Trimmed shots don't exceed 12.0 seconds (respect max_shot_duration)
+
+**Pacing & Rhythm:**
+✅ Shot durations are VARIED within each scene (not uniform)
+✅ No pauses longer than 1.5s within scenes (unless high emotion)
 ✅ Reaction shots (no dialogue) are 1.5-4.0 seconds
+✅ Emotional beats have appropriate pause lengths (0.5-1.0s for drama)
+
+**Dialogue Integrity:**
+✅ No dialogue cut off mid-sentence or mid-word
+✅ Complete sentences are preserved
+✅ Speech boundaries from audio_metadata are honored
 
 ## EXAMPLES
 

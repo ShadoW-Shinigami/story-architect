@@ -290,18 +290,19 @@ class FFmpegBuilder:
         video_path: Path,
         output_path: Path,
         trim_start: float = 0.0,
-        trim_end: Optional[float] = None,
-        audio_offset: float = 0.0
+        trim_end: Optional[float] = None
     ) -> Path:
         """
-        Edit a single shot: trim and optionally offset audio.
+        Edit a single shot: simple trim only.
+
+        J/L cuts are NOT applied here - they're handled during concatenation.
+        This keeps clips clean and synchronized.
 
         Args:
             video_path: Input video path
             output_path: Output video path
             trim_start: Seconds to trim from start
             trim_end: End timestamp (None = keep to end)
-            audio_offset: Audio offset in seconds (negative = start early, positive = start late)
 
         Returns:
             Path to edited video
@@ -309,7 +310,7 @@ class FFmpegBuilder:
         if not video_path.exists():
             raise FileNotFoundError(f"Video not found: {video_path}")
 
-        logger.info(f"Editing shot: {video_path.name}")
+        logger.info(f"Trimming shot: {video_path.name} ({trim_start}s to {trim_end if trim_end else 'end'}s)")
 
         # Get video duration
         duration = self.get_video_duration(video_path)
@@ -325,86 +326,237 @@ class FFmpegBuilder:
         if trim_start >= trim_end:
             raise ValueError(f"Invalid trim values: start={trim_start}, end={trim_end}")
 
-        # Build FFmpeg command
-        if abs(audio_offset) < 0.01:
-            # No audio offset, simple trim
-            cmd = [
-                self.ffmpeg_path,
-                "-i", str(video_path),
-                "-ss", str(trim_start),
-                "-to", str(trim_end),
-                "-c:v", self.output_codec,
-                "-preset", self.output_preset,
-                "-crf", str(self.output_crf),
-                "-c:a", self.audio_codec,
-                "-b:a", self.audio_bitrate,
-                "-y",
-                str(output_path)
-            ]
-        else:
-            # Audio offset required (for J/L cuts)
-            filter_complex = self._build_audio_offset_filter(
-                trim_start,
-                trim_end,
-                audio_offset,
-                duration
-            )
+        # Simple trim command (video and audio stay synchronized)
+        cmd = [
+            self.ffmpeg_path,
+            "-i", str(video_path),
+            "-ss", str(trim_start),
+            "-to", str(trim_end),
+            "-c:v", self.output_codec,
+            "-preset", self.output_preset,
+            "-crf", str(self.output_crf),
+            "-c:a", self.audio_codec,
+            "-b:a", self.audio_bitrate,
+            "-y",
+            str(output_path)
+        ]
 
-            cmd = [
-                self.ffmpeg_path,
-                "-i", str(video_path),
-                "-filter_complex", filter_complex,
-                "-map", "[v]",
-                "-map", "[a]",
-                "-c:v", self.output_codec,
-                "-preset", self.output_preset,
-                "-crf", str(self.output_crf),
-                "-c:a", self.audio_codec,
-                "-b:a", self.audio_bitrate,
-                "-y",
-                str(output_path)
-            ]
+        self._execute_ffmpeg(cmd, f"trimming shot {video_path.name}")
 
-        self._execute_ffmpeg(cmd, f"editing shot {video_path.name}")
-
-        logger.info(f"Shot edited: {output_path}")
+        logger.info(f"Shot trimmed: {output_path}")
         return output_path
 
-    def _build_audio_offset_filter(
+    def concatenate_with_timeline_audio(
         self,
-        trim_start: float,
-        trim_end: float,
-        audio_offset: float,
-        original_duration: float
-    ) -> str:
+        video_files: List[Path],
+        transitions: List[Dict[str, Any]],
+        output_path: Path
+    ) -> Path:
         """
-        Build filter_complex for audio offset (J/L cuts).
+        Concatenate videos with proper J-cut and L-cut support using timeline-based audio mixing.
+
+        J-cuts and L-cuts are cross-clip transitions that require audio from one shot
+        to overlap with video from another shot. This method uses FFmpeg's adelay and
+        amix filters to properly position and mix audio on a single timeline.
 
         Args:
-            trim_start: Video trim start time
-            trim_end: Video trim end time
-            audio_offset: Audio offset in seconds
-            original_duration: Original video duration
+            video_files: List of trimmed video file paths
+            transitions: List of transition dicts (length = len(video_files) - 1):
+                [
+                    {"type": "j_cut", "audio_advance": 0.5},  # Shot 2 audio starts 0.5s before video cut
+                    {"type": "l_cut", "audio_extend": 0.7},   # Shot 2 audio continues 0.7s after video cut
+                    {"type": "hard_cut"}                       # No overlap
+                ]
+            output_path: Output video path
 
         Returns:
-            FFmpeg filter_complex string
+            Path to output video
         """
-        # Video trim
-        video_filter = f"[0:v]trim=start={trim_start}:end={trim_end},setpts=PTS-STARTPTS[v]"
+        if not video_files:
+            raise ValueError("No video files provided")
 
-        # Audio trim with offset
-        if audio_offset < 0:
-            # J-cut: audio starts earlier
-            audio_start = max(0, trim_start + audio_offset)
-            audio_end = trim_end + audio_offset
-            audio_filter = f"[0:a]atrim=start={audio_start}:end={audio_end},asetpts=PTS-STARTPTS,adelay={abs(audio_offset * 1000)}|{abs(audio_offset * 1000)}[a]"
+        logger.info(f"Concatenating {len(video_files)} clips with {len(transitions)} transitions...")
+
+        # Special case: Single video, just copy it
+        if len(video_files) == 1:
+            import shutil
+            shutil.copy2(video_files[0], output_path)
+            return output_path
+
+        # Get durations of all clips
+        durations = [self.get_video_duration(vf) for vf in video_files]
+
+        # Calculate timeline positions for each clip
+        # Account for J-cuts (audio starts early) and L-cuts (audio extends late)
+        video_positions = [0.0]  # Video always starts at 0
+        audio_positions = [0.0]  # Audio might start earlier due to J-cuts
+
+        current_video_time = 0.0
+        current_audio_time = 0.0
+
+        for i, duration in enumerate(durations):
+            if i < len(transitions):
+                trans = transitions[i]
+                trans_type = trans.get("type", "hard_cut")
+
+                if trans_type == "j_cut":
+                    # Next clip's audio starts early
+                    audio_advance = trans.get("audio_advance", 0.0)
+                    next_video_pos = current_video_time + duration
+                    next_audio_pos = next_video_pos - audio_advance  # Start audio earlier
+
+                    video_positions.append(next_video_pos)
+                    audio_positions.append(next_audio_pos)
+                    current_video_time = next_video_pos
+                    current_audio_time = next_audio_pos
+
+                elif trans_type == "l_cut":
+                    # Current clip's audio extends beyond its video
+                    audio_extend = trans.get("audio_extend", 0.0)
+                    next_video_pos = current_video_time + duration
+                    next_audio_pos = current_audio_time + duration  # Audio continues from current position
+
+                    # Note: audio from current clip extends by audio_extend
+                    # Next clip's audio will overlap
+
+                    video_positions.append(next_video_pos)
+                    audio_positions.append(next_video_pos - audio_extend)  # Audio starts to allow overlap
+                    current_video_time = next_video_pos
+                    current_audio_time = next_video_pos - audio_extend
+
+                else:  # hard_cut
+                    next_video_pos = current_video_time + duration
+                    next_audio_pos = current_audio_time + duration
+
+                    video_positions.append(next_video_pos)
+                    audio_positions.append(next_audio_pos)
+                    current_video_time = next_video_pos
+                    current_audio_time = next_audio_pos
+
+        # Validate audio positions to prevent sync issues
+        logger.debug(f"Video positions: {video_positions}")
+        logger.debug(f"Audio positions: {audio_positions}")
+
+        for i in range(len(audio_positions)):
+            # Get transition type for this clip
+            if i == 0:
+                trans_type = "hard_start"
+            elif i - 1 < len(transitions):
+                trans_type = transitions[i - 1].get("type", "hard_cut")
+            else:
+                trans_type = "hard_cut"
+
+            # For hard cuts, audio must not start before video
+            if trans_type in ["hard_cut", "hard_start"]:
+                if audio_positions[i] < video_positions[i]:
+                    logger.warning(
+                        f"Clip {i}: Audio position ({audio_positions[i]:.2f}s) before video "
+                        f"({video_positions[i]:.2f}s) - correcting to match video position"
+                    )
+                    audio_positions[i] = video_positions[i]
+
+        # Optimization: If no J/L cuts, use simple concat (faster and guaranteed sync)
+        has_jl_cuts = any(t.get("type") in ["j_cut", "l_cut"] for t in transitions)
+
+        if not has_jl_cuts:
+            logger.info("No J/L cuts detected - using simple concatenation for guaranteed sync")
+            return self.concatenate_simple(video_files, output_path)
+
+        logger.info(f"Processing {sum(1 for t in transitions if t.get('type') in ['j_cut', 'l_cut'])} J/L cuts...")
+
+        # Build FFmpeg filter_complex
+        input_args = []
+        for vf in video_files:
+            input_args.extend(["-i", str(vf)])
+
+        # Build filter parts
+        filter_parts = []
+
+        # Concat video (simple, sequential)
+        video_concat = "".join([f"[{i}:v]" for i in range(len(video_files))])
+        video_concat += f"concat=n={len(video_files)}:v=1:a=0[vout]"
+        filter_parts.append(video_concat)
+
+        # Position and mix audio streams
+        audio_labels = []
+        for i in range(len(video_files)):
+            audio_delay_ms = int(audio_positions[i] * 1000)
+
+            if audio_delay_ms > 0:
+                # Delay audio to correct timeline position
+                filter_parts.append(f"[{i}:a]adelay={audio_delay_ms}|{audio_delay_ms}[a{i}]")
+                audio_labels.append(f"[a{i}]")
+            else:
+                # No delay needed
+                audio_labels.append(f"[{i}:a]")
+
+        # Mix all audio streams (overlaps handled automatically)
+        audio_mix = "".join(audio_labels)
+        audio_mix += f"amix=inputs={len(video_files)}:duration=longest:dropout_transition=0[amixed]"
+        filter_parts.append(audio_mix)
+
+        # Build audio enhancement chain
+        audio_enhancements = []
+        current_label = "[amixed]"
+
+        # [A] Dynamic Range Compression (make quiet parts louder, loud parts quieter)
+        if self.config.get("audio_compression", True):
+            compression_ratio = self.config.get("compression_ratio", 3)
+            audio_enhancements.append(
+                f"{current_label}acompressor=threshold=-18dB:ratio={compression_ratio}:attack=20:release=250[acomp]"
+            )
+            current_label = "[acomp]"
+            logger.debug("Audio enhancement: Dynamic range compression enabled")
+
+        # [C] Dialogue Enhancement EQ (boost voice frequencies)
+        if self.config.get("dialogue_enhancement", True):
+            eq_boost = self.config.get("eq_voice_boost_db", 3)
+            audio_enhancements.append(
+                f"{current_label}equalizer=f=1000:t=h:width=1000:g={eq_boost},highpass=f=100,lowpass=f=8000[aeq]"
+            )
+            current_label = "[aeq]"
+            logger.debug(f"Audio enhancement: Dialogue EQ with +{eq_boost}dB boost")
+
+        # [A] Loudness Normalization (streaming standard)
+        if self.config.get("normalize_loudness", True):
+            target_loudness = self.config.get("target_loudness", -16)
+            audio_enhancements.append(
+                f"{current_label}loudnorm=I={target_loudness}:TP=-1.5:LRA=11[aout]"
+            )
+            current_label = "[aout]"
+            logger.debug(f"Audio enhancement: Loudness normalization to {target_loudness} LUFS")
         else:
-            # L-cut: audio starts later
-            audio_start = trim_start
-            audio_end = min(original_duration, trim_end + audio_offset)
-            audio_filter = f"[0:a]atrim=start={audio_start}:end={audio_end},asetpts=PTS-STARTPTS[a]"
+            # Rename final label to aout
+            if current_label != "[amixed]":
+                audio_enhancements.append(f"{current_label}acopy[aout]")
 
-        return f"{video_filter};{audio_filter}"
+        # Add all audio enhancements to filter
+        if audio_enhancements:
+            filter_parts.extend(audio_enhancements)
+
+        filter_complex = ";".join(filter_parts)
+
+        # Build final command
+        cmd = [
+            self.ffmpeg_path,
+            *input_args,
+            "-filter_complex", filter_complex,
+            "-map", "[vout]",
+            "-map", "[aout]",
+            "-c:v", self.output_codec,
+            "-preset", self.output_preset,
+            "-crf", str(self.output_crf),
+            "-c:a", self.audio_codec,
+            "-b:a", self.audio_bitrate,
+            "-y",
+            str(output_path)
+        ]
+
+        logger.debug(f"FFmpeg filter_complex: {filter_complex}")
+        self._execute_ffmpeg(cmd, f"concatenation with audio mixing")
+
+        logger.info(f"Timeline concatenation complete: {output_path}")
+        return output_path
 
     def edit_scene_with_edl(
         self,
@@ -432,7 +584,7 @@ class FFmpegBuilder:
         edited_shots = []
 
         try:
-            # Edit each shot according to EDL
+            # Step 1: Trim each shot (NO audio offsets applied yet)
             for i, shot_edit in enumerate(edl_shots):
                 shot_id = shot_edit.get("shot_id")
                 video_rel_path = shot_edit.get("video_path")
@@ -440,24 +592,52 @@ class FFmpegBuilder:
 
                 trim_start = shot_edit.get("trim_start", 0.0)
                 trim_end = shot_edit.get("trim_end")
-                audio_offset = shot_edit.get("audio_start_offset", 0.0)
 
-                # Output path for edited shot
+                # Output path for trimmed shot
                 edited_shot_path = temp_dir / f"edited_{i:03d}_{shot_id}.mp4"
 
-                # Edit the shot
+                # Trim the shot (audio stays synchronized with video)
                 self.edit_shot(
                     video_path,
                     edited_shot_path,
                     trim_start,
-                    trim_end,
-                    audio_offset
+                    trim_end
                 )
 
                 edited_shots.append(edited_shot_path)
 
-            # Concatenate edited shots
-            self.concatenate_simple(edited_shots, output_path)
+            # Step 2: Build transitions list from EDL
+            transitions = []
+            for i in range(len(edl_shots) - 1):
+                current_shot = edl_shots[i]
+                next_shot = edl_shots[i + 1]
+
+                edit_type = next_shot.get("edit_type", "hard_cut")
+                audio_offset = next_shot.get("audio_start_offset", 0.0)
+
+                if edit_type == "j_cut" and audio_offset < 0:
+                    # J-cut: next shot's audio starts early
+                    transitions.append({
+                        "type": "j_cut",
+                        "audio_advance": abs(audio_offset)
+                    })
+                    logger.debug(f"Transition {i}->{i+1}: J-cut with {abs(audio_offset)}s advance")
+
+                elif edit_type == "l_cut" and audio_offset > 0:
+                    # L-cut: current shot's audio extends
+                    transitions.append({
+                        "type": "l_cut",
+                        "audio_extend": abs(audio_offset)
+                    })
+                    logger.debug(f"Transition {i}->{i+1}: L-cut with {abs(audio_offset)}s extension")
+
+                else:
+                    # Hard cut (or invalid offset)
+                    transitions.append({"type": "hard_cut"})
+                    logger.debug(f"Transition {i}->{i+1}: Hard cut")
+
+            # Step 3: Concatenate with timeline-based audio mixing
+            self.concatenate_with_timeline_audio(edited_shots, transitions, output_path)
 
             # Clean up temp files
             for shot in edited_shots:

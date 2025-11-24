@@ -590,20 +590,44 @@ class VideoEditAgent(BaseAgent):
                 duration = video_info.get("duration_seconds", 5.0)
                 dialogue = audio_info.get("dialogue")
 
-                # Determine trim values
+                # Determine trim values with dialogue protection
                 if dialogue and dialogue.get("has_speech"):
                     # Trim based on speech boundaries
                     trim_start = max(0.0, dialogue["speech_start"] - 0.3)
                     trim_end = min(duration, dialogue["speech_end"] + 0.3)
+
+                    # CRITICAL: Never cut off dialogue
+                    if trim_end < dialogue["speech_end"]:
+                        logger.warning(
+                            f"{shot_id}: trim_end ({trim_end}) would cut off dialogue at "
+                            f"{dialogue['speech_end']}s - extending to protect speech"
+                        )
+                        trim_end = min(duration, dialogue["speech_end"] + 0.2)
                 else:
                     # No speech, trim fixed amount
                     trim_start = 0.5
                     trim_end = duration - 0.5
 
+                # Enforce maximum shot duration from config
+                max_duration = self.config.get("max_shot_duration", 12.0)
+                if trim_end - trim_start > max_duration:
+                    logger.warning(f"{shot_id}: Shot exceeds max duration, clamping to {max_duration}s")
+                    trim_end = trim_start + max_duration
+
                 # Ensure minimum duration
-                if trim_end - trim_start < 1.5:
-                    trim_start = 0.0
-                    trim_end = min(duration, 2.0)
+                min_duration = self.config.get("min_shot_duration", 1.5)
+                if trim_end - trim_start < min_duration:
+                    # Try extending end first
+                    trim_end = min(duration, trim_start + min_duration)
+                    # If still too short, reset to use full shot
+                    if trim_end - trim_start < min_duration:
+                        trim_start = 0.0
+                        trim_end = min(duration, min_duration)
+
+                # FINAL VALIDATION: Never exceed original video duration
+                if trim_end > duration:
+                    logger.warning(f"{shot_id}: trim_end ({trim_end}) exceeds duration ({duration}), clamping")
+                    trim_end = duration
 
                 shots_edl.append({
                     "shot_id": shot_id,
