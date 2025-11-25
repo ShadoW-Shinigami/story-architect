@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# Environment
+.env
+.env.local
+
+# Database
+*.db
+*.sqlite3
+sessions.db
+
+# Google credentials
+google-credentials.json
+*-credentials.json
+
+# Outputs
+outputs/
+sessions/
+*.mp4
+*.png
+*.jpg
+*.jpeg
+
+# Node
+node_modules/
+.next/
+out/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
