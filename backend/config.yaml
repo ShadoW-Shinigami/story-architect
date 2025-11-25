@@ -1,0 +1,272 @@
+# Story Architect Configuration
+app:
+  name: "Story Architect"
+  version: "1.0.0"
+  max_retries: 3
+  session_autosave: true
+
+# Gemini API Settings
+gemini:
+  model: "gemini-3-pro-preview" # gemini-3-pro-preview, gemini-2.5-pro
+  temperature: 0.7
+  max_output_tokens: 32000
+  timeout: 300  # seconds
+
+  # Authentication Mode
+  use_vertex_ai: true  # Set to true to use Vertex AI instead of direct API
+
+  # Vertex AI Configuration (only used when use_vertex_ai: true)
+  vertex_ai:
+    project_id: ""  # Set via GOOGLE_CLOUD_PROJECT env var or here
+    location: "global"  # Options: us-central1, us-east1, europe-west1, asia-northeast1, global
+    credentials_file: "google-credentials.json"  # Path to service account JSON file
+
+
+# ==========================================
+# GLOBAL IMAGE GENERATION SETTINGS
+# ==========================================
+
+# --- 1. Model Definitions ---
+# These sections define the available configurations.
+# You can leave them all uncommented.
+
+# Option 1: FAL - Seedream (Default)
+provider_fal_seedream: &fal_seedream_config
+  image_provider: "fal"
+  fal_text_to_image_model: "fal-ai/bytedance/seedream/v4/text-to-image"
+  fal_edit_model: "fal-ai/bytedance/seedream/v4/edit"
+  # Seedream specific params
+  width: 3840
+  height: 2160
+
+# Option 2: FAL - Nano Banana Pro
+provider_fal_nano: &fal_nano_config
+  image_provider: "fal"
+  fal_text_to_image_model: "fal-ai/nano-banana-pro"
+  fal_edit_model: "fal-ai/nano-banana-pro/edit"
+  # Nano Banana specific params
+  resolution: "2K"       # Options: "1K", "2K", "4K"
+  aspect_ratio: "16:9"   # Options: "16:9", "1:1", "21:9", "3:2", "4:3", "9:16"
+
+# Option 3: Google Gemini
+provider_gemini: &gemini_image_config
+  image_provider: "gemini"
+  model: "gemini-2.5-flash-image"
+  aspect_ratio: "16:9"
+  image_size: "2K"
+
+# --- 2. Active Configuration ---
+# Change the pointer (e.g. *fal_nano_config) below to switch providers.
+# This is the ONLY line you need to change to switch models.
+active_image_config: &global_image_settings
+  <<: *fal_nano_config
+
+
+# Agent Configurations
+agents:
+  agent_1:
+    name: "Screenplay Generator"
+    enabled: true
+    temperature: 0.8
+    max_output_tokens: 32000
+    # Optional: override Gemini model for this agent only
+    # model: "gemini-3-pro-preview"
+    prompt_file: "prompts/agent_1_prompt.txt"
+
+  agent_2:
+    name: "Scene Breakdown"
+    enabled: true
+    temperature: 0.7
+    max_output_tokens: 32000
+    # Optional: override Gemini model for this agent only
+    # model: "gemini-2.5-pro"
+    prompt_file: "prompts/agent_2_prompt.txt"
+    output_format: "json"
+
+  agent_3:
+    name: "Shot Breakdown"
+    enabled: true
+    temperature: 0.6
+    max_output_tokens: 32000
+    # Optional: override Gemini model for this agent only
+    # model: "gemini-2.5-pro"
+    prompt_file: "prompts/agent_3_prompt.txt"
+    output_format: "json"
+    strict_json: true
+
+  agent_4:
+    name: "Shot Grouping"
+    enabled: true
+    temperature: 0.5
+    max_output_tokens: 32000
+    # Optional: override Gemini model for this agent only
+    model: "gemini-2.5-pro"
+    prompt_file: "prompts/agent_4_prompt.txt"
+    output_format: "json"
+
+  # Phase 2: Image Generation Agents
+  agent_5:
+    name: "Character Creator"
+    enabled: true
+    temperature: 0.6
+    grid_aspect_ratio: "16:9"
+    prompt_file: "prompts/agent_5_prompt.txt"
+    # Inherit global image settings
+    <<: *global_image_settings
+    # Override specifically for characters (usually 1:1) if needed
+    aspect_ratio: "1:1"
+
+  agent_6:
+    name: "Parent Image Generator"
+    enabled: true
+    temperature: 0.7
+    max_retries: 3
+    optimizer_model: "gemini-3-pro-preview"  # LLM for prompt optimization
+    image_model: "gemini-2.5-flash-image"    # Gemini image generation (fallback)
+    prompt_file: "prompts/agent_6_prompt.txt"
+    use_prompt_optimizer: true
+    optimizer_prompt_file: "prompts/agent_6_optimizer_prompt.txt"
+    # Inherit global image settings
+    <<: *global_image_settings
+
+  agent_7:
+    name: "Parent Verification"
+    enabled: true
+    temperature: 0.3
+    verification_model: "gemini-3-pro-preview"  # LLM for verification analysis
+    image_model: "gemini-2.5-flash-image"       # Gemini image generation (fallback)
+    max_retries: 3
+    confidence_threshold: 0.7
+    soft_failure_mode: true
+    verification_prompt_file: "prompts/agent_7_verification_prompt.txt"
+    modifier_prompt_file: "prompts/agent_7_prompt_modifier.txt"
+    agent_6_prompt_file: "prompts/agent_6_prompt.txt"
+    # Inherit global image settings
+    <<: *global_image_settings
+
+  agent_8:
+    name: "Child Image Generator"
+    enabled: true
+    temperature: 0.7
+    max_retries: 3
+    optimizer_model: "gemini-3-pro-preview"  # LLM for prompt optimization
+    image_model: "gemini-2.5-flash-image"    # Gemini image generation (fallback)
+    prompt_file: "prompts/agent_8_prompt.txt"
+    use_prompt_optimizer: true
+    optimizer_prompt_file: "prompts/agent_8_optimizer_prompt.txt"
+    # Inherit global image settings
+    <<: *global_image_settings
+
+  agent_9:
+    name: "Child Verification"
+    enabled: true
+    temperature: 0.3
+    verification_model: "gemini-3-pro-preview"  # LLM for verification analysis
+    image_model: "gemini-2.5-flash-image"       # Gemini image generation (fallback)
+    max_retries: 3
+    confidence_threshold: 0.7
+    consistency_threshold: 0.6
+    soft_failure_mode: true
+    verification_prompt_file: "prompts/agent_9_verification_prompt.txt"
+    modifier_prompt_file: "prompts/agent_9_prompt_modifier.txt"
+    agent_8_prompt_file: "prompts/agent_8_prompt.txt"
+    # Inherit global image settings
+    <<: *global_image_settings
+
+  agent_10:
+    name: "Video Dialogue Generator"
+    enabled: true
+    temperature: 0.7
+    max_output_tokens: 8192
+    model: "gemini-2.5-pro"
+    prompt_file: "prompts/agent_10_prompt.txt"
+
+    # Video Provider: "fal" or "vertex_ai"
+    video_provider: "vertex_ai"  # Options: fal, vertex_ai
+
+    # FAL settings (when video_provider: fal)
+    video_resolution: "1080p"  # Options: 720p, 1080p
+    generate_audio: true
+    fal_timeout: 3600
+
+    # Vertex AI settings (when video_provider: vertex_ai)
+    vertex_ai_project_id: ""  # Set via GOOGLE_CLOUD_PROJECT env var or here
+    vertex_ai_location: "us-central1"  # Options: us-central1 (Veo is regional)
+    vertex_ai_model_id: "veo-3.1-fast-generate-preview"  # Veo 3.1 Fast model ID
+    vertex_ai_credentials_file: "google-credentials.json"  # Path to service account JSON
+
+    # Common settings (both providers)
+    aspect_ratio: "auto"  # Options: auto, 16:9, 9:16, 1:1 (auto = detect from image)
+    max_image_size_mb: 7.0  # Maximum image size for base64 encoding (Vertex AI)
+
+  agent_11:
+    name: "Intelligent Video Editor"
+    enabled: true
+    temperature: 0.5
+    max_output_tokens: 32000
+    model: "gemini-2.5-flash"  # Use fast model for EDL generation
+    prompt_file: "prompts/agent_11_prompt.txt"
+
+    # FFmpeg Configuration
+    ffmpeg_path: "ffmpeg"  # or full path: "C:/path/to/ffmpeg.exe"
+    ffprobe_path: "ffprobe"  # Used for video duration detection
+    output_codec: "libx264"
+    output_preset: "medium"  # Options: ultrafast, fast, medium, slow, veryslow
+    output_crf: 23  # Quality (0-51, lower = better quality, 23 is default)
+    audio_codec: "aac"
+    audio_bitrate: "192k"
+
+    # WhisperX Configuration
+    whisperx_model: "base.en"  # Options: tiny.en, base.en, small.en, medium.en, large-v2
+    whisperx_device: "cpu"  # Options: cpu, cuda (if GPU available)
+    whisperx_batch_size: 8
+    whisperx_compute_type: "int8"  # Options: int8, float16, float32
+
+    # Editing Rules
+    default_transition_duration: 0.5  # seconds for simple cuts
+    scene_fade_duration: 1.0  # seconds for scene-to-scene transitions
+    min_shot_duration: 1.5  # minimum shot length in seconds
+    max_shot_duration: 12.0  # maximum shot length in seconds
+    trim_silence_threshold: 0.3  # trim silence longer than this at start/end
+
+    # Audio Mixing Configuration
+    enable_audio_mixing: true
+    audio_fade_in: 0.2  # seconds
+    audio_fade_out: 0.2  # seconds
+    normalize_audio: true
+    j_cut_max_offset: 1.0  # max seconds audio can start before video
+    l_cut_max_offset: 1.0  # max seconds audio can continue after video
+
+    # Professional Audio Enhancement (Tier 1)
+    normalize_loudness: true  # Loudness normalization (streaming standard)
+    target_loudness: -16  # Target LUFS (-16 for streaming, -23 for broadcast)
+    audio_compression: true  # Dynamic range compression for consistent volume
+    compression_ratio: 3  # Compression ratio (1=none, 3=gentle, 6=aggressive)
+    dialogue_enhancement: true  # EQ boost for voice clarity
+    eq_voice_boost_db: 3  # Voice frequency boost in dB (1-6 recommended)
+
+    # Output Settings (use "auto" to match input video properties)
+    output_resolution: "auto"  # Match input video resolution (or specify like "1920x1080")
+    output_fps: "auto"  # Match input video fps (or specify like 24, 30, 60)
+    output_aspect_ratio: "auto"  # Match input video aspect ratio (or specify like "16:9")
+
+    # Editing Strategy
+    skip_gemini_edl: false  # Set to true to bypass Gemini and use heuristic editing directly
+    max_edl_retries: 3  # retries for Gemini EDL generation (if skip_gemini_edl is false)
+    use_heuristic_fallback: true  # use simple editing if Gemini fails
+
+# Output Settings
+output:
+  base_directory: "outputs/projects"
+  log_directory: "outputs/logs"
+  save_intermediate: true
+  create_timestamp_folders: true
+
+# GUI Settings
+gui:
+  theme: "light"
+  page_title: "Story Architect"
+  page_icon: "🎬"
+  layout: "wide"
+  show_session_history: true
+  max_session_history: 20

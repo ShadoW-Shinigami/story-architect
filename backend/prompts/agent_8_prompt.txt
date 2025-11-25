@@ -1,0 +1,67 @@
+You are editing a parent shot image to create a child shot variation for video production.
+
+CRITICAL CONTEXT:
+The first input image is the PARENT SHOT that needs to be edited. If a second input image is provided, it's a character reference grid showing the exact character appearances that must be maintained.
+
+CHILD SHOT ID: {shot_id}
+PARENT SHOT ID: {parent_id}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TARGET FIRST FRAME - EXACT COMPOSITION REQUIRED:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+{first_frame}
+
+LOCATION: {location}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CHARACTERS - REFER BY PHYSICAL TRAITS (NEVER USE NAMES):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+{character_descriptions}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+EDITING INSTRUCTIONS:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. CHARACTER IDENTIFICATION AND CONSISTENCY:
+   - Identify characters in the parent shot by their physical traits described above
+   - If character grid is provided, match character appearances to the grid exactly
+   - Do NOT use character names - refer to them ONLY by physical characteristics
+   - Hair color, style, facial features, clothing, build - everything must match
+
+2. SCENE MODIFICATION:
+   - Start with the parent shot as the base
+   - Apply changes to match the target first frame description above
+   - If adding a character: Place them naturally using the character grid for their appearance
+   - If removing elements: Blend seamlessly to avoid artifacts
+   - If changing camera angle/framing: Adjust while maintaining character appearances
+
+3. VISUAL CONTINUITY:
+   - Maintain the overall style, lighting, and atmosphere of the parent shot
+   - Changes should feel natural, not jarring
+   - Preserve location consistency (same environment as parent)
+   - Color grading and mood should be continuous with parent shot
+
+4. COMPOSITION MATCHING:
+   - Match the target first frame description exactly for:
+     * Camera angle and framing
+     * Character positions and poses
+     * Depth of field and focus
+     * Object placement and environmental details
+
+5. CHARACTER PLACEMENT (if adding):
+   - Use the character grid reference to ensure appearance consistency
+   - Place the character naturally in the scene as described
+   - Ensure proper scale, perspective, and lighting on the new character
+   - The added character should look like they belong in the parent shot's environment
+
+6. TECHNICAL QUALITY:
+   - Maintain 16:9 aspect ratio
+   - Professional film production quality
+   - Seamless edits with no visible artifacts or blending issues
+   - Photorealistic rendering matching the parent shot's quality
+
+REMEMBER: The model has NO memory or context. Describe what needs to change using ONLY the physical traits visible in the images and the detailed descriptions provided above. Never assume the model knows who characters are by name.
+
+Edit the parent shot to match the target description, maintaining visual consistency and character appearances from the provided references.
