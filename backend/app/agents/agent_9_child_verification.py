@@ -403,19 +403,34 @@ class ChildVerificationAgent(AsyncBaseAgent):
         location = shot_details.get("location", "")
         first_frame = shot_details.get("first_frame", "")
 
+        # Build parent context
+        parent_context_prefix = " and compare it with the parent shot image (if provided)" if has_parent else ""
         parent_context = ""
         if has_parent and parent_shot_details:
             parent_chars = parent_shot_details.get("characters", [])
             parent_frame = parent_shot_details.get("first_frame", "")
             parent_context = f"""
-PARENT SHOT CONTEXT:
+PARENT SHOT CONTEXT (What we're editing from):
 - Characters in parent: {', '.join(parent_chars)}
 - Parent composition: {parent_frame}
-- Edit type: {edit_type}
-NOTE: Differences may be INTENTIONAL based on edit type.
+
+NOTE: If the edit type is '{edit_type}', then differences in characters/composition may be INTENTIONAL.
 """
 
-        verification_prompt = f"""
+        # Use template file if loaded, otherwise fallback to inline
+        if self.verification_template:
+            verification_prompt = self.verification_template.format(
+                parent_context_prefix=parent_context_prefix,
+                expected_characters=', '.join(characters) if characters else 'None specified',
+                location=location,
+                first_frame=first_frame,
+                edit_type=edit_type,
+                parent_context=parent_context
+            )
+        else:
+            # Fallback inline prompt (simplified)
+            logger.warning(f"{self.agent_name}: Verification template not loaded, using inline fallback")
+            verification_prompt = f"""
 Analyze this child shot image for film production quality.
 
 EXPECTED REQUIREMENTS:

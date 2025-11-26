@@ -52,31 +52,36 @@ class ParentImageGeneratorAgent(AsyncBaseAgent):
         self.optimizer_model = config.get("optimizer_model", "gemini-3-pro-preview")  # LLM for prompt optimization
         self.image_model = config.get("image_model", "gemini-2.5-flash-image")  # Gemini image generation
 
-        # Load optimizer template from file
+        # Load templates from file
         self.optimizer_template_path = Path(config.get(
             "optimizer_prompt_file",
             "prompts/agent_6_optimizer_prompt.txt"
         ))
-        self.optimizer_template = self._load_optimizer_template()
+        self.prompt_template_path = Path(config.get(
+            "prompt_file",
+            "prompts/agent_6_prompt.txt"
+        ))
+        self.optimizer_template = self._load_template(self.optimizer_template_path)
+        self.prompt_template = self._load_template(self.prompt_template_path)
 
-    def _load_optimizer_template(self) -> Optional[str]:
-        """Load optimizer template from file with fallback paths."""
+    def _load_template(self, template_path: Path) -> Optional[str]:
+        """Load template from file with fallback paths."""
         # Try relative to session dir first
-        session_path = self.session_dir / self.optimizer_template_path
+        session_path = self.session_dir / template_path
         if session_path.exists():
             return session_path.read_text(encoding="utf-8")
 
         # Try relative to backend root
         backend_root = Path(__file__).parent.parent.parent
-        backend_path = backend_root / self.optimizer_template_path
+        backend_path = backend_root / template_path
         if backend_path.exists():
             return backend_path.read_text(encoding="utf-8")
 
         # Try absolute path
-        if self.optimizer_template_path.exists():
-            return self.optimizer_template_path.read_text(encoding="utf-8")
+        if template_path.exists():
+            return template_path.read_text(encoding="utf-8")
 
-        logger.warning(f"Optimizer template not found: {self.optimizer_template_path}")
+        logger.warning(f"Template not found: {template_path}")
         return None
 
     async def validate_input(self, input_data: Any) -> None:
@@ -362,13 +367,22 @@ OUTPUT: Provide only the optimized prompt, no explanations."""
         # Build character description text
         char_desc_text = ""
         for idx, char in enumerate(character_descriptions, 1):
-            char_desc_text += f"""
-CHARACTER {idx}: {char['name']}
+            char_desc_text += f"""CHARACTER {idx}: {char['name']}
 PHYSICAL APPEARANCE: {char['physical_description']}
 """
 
-        # Build verbose prompt
-        verbose_prompt = f"""
+        # Build verbose prompt using template if available
+        if self.prompt_template:
+            verbose_prompt = self.prompt_template.format(
+                shot_id=shot_id,
+                first_frame=first_frame,
+                location_description=location_description,
+                character_descriptions=char_desc_text
+            )
+        else:
+            # Fallback inline prompt (simplified)
+            logger.warning(f"{self.agent_name}: Prompt template not loaded, using inline fallback")
+            verbose_prompt = f"""
 CINEMATIC SCENE GENERATION
 
 SHOT ID: {shot_id}

@@ -249,6 +249,7 @@ class VideoEditAgent(AsyncBaseAgent):
         last_error = None
 
         for attempt in range(self.max_edl_retries):
+            response = None  # Initialize before try block to avoid UnboundLocalError
             try:
                 logger.info(
                     f"{self.agent_name}: Gemini EDL generation attempt "

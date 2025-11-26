@@ -314,7 +314,17 @@ class ParentVerificationAgent(AsyncBaseAgent):
         location = shot_details.get("location", "")
         first_frame = shot_details.get("first_frame", "")
 
-        verification_prompt = f"""
+        # Use template file if loaded, otherwise fallback to inline
+        if self.verification_template:
+            verification_prompt = self.verification_template.format(
+                expected_characters=', '.join(characters) if characters else 'None specified',
+                location=location,
+                first_frame=first_frame
+            )
+        else:
+            # Fallback inline prompt (simplified)
+            logger.warning(f"{self.agent_name}: Verification template not loaded, using inline fallback")
+            verification_prompt = f"""
 Analyze this image as a parent shot for film production.
 
 EXPECTED REQUIREMENTS:
