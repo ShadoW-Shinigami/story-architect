@@ -149,6 +149,11 @@ class ChildImageGeneratorAgent(AsyncBaseAgent):
         child_shots_data = []
 
         for idx, child_shot_info in enumerate(child_shot_list):
+            # Check for cancellation before processing each shot
+            if self.queue_manager and self.queue_manager.is_cancel_requested():
+                logger.info(f"{self.agent_name}: Cancellation detected, stopping after {len(child_shots_data)} shots")
+                break
+
             try:
                 shot_id = child_shot_info["shot_id"]
                 parent_id = child_shot_info["parent_shot_id"]

@@ -37,6 +37,7 @@ class AsyncBaseAgent(ABC):
         self.session_id = session_id
         self.config = config
         self.session_dir = session_dir or Path(f"outputs/projects/{session_id}")
+        self.queue_manager = None  # Will be set by factory if available
 
     async def execute(
         self,

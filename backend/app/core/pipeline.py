@@ -46,9 +46,15 @@ class AsyncPipeline:
     - Progress tracking
     """
 
-    def __init__(self, session_id: str, progress_tracker: ProgressTracker):
+    def __init__(
+        self,
+        session_id: str,
+        progress_tracker: ProgressTracker,
+        queue_manager: Optional['QueueManager'] = None
+    ):
         self.session_id = session_id
         self.progress = progress_tracker
+        self.queue_manager = queue_manager
         self.config = get_config()
         self._agents = {}  # Lazy-loaded agent instances
 
@@ -67,6 +73,11 @@ class AsyncPipeline:
 
             # Run agents in sequence
             for agent_name in AGENT_ORDER[start_idx:]:
+                # Check for cancellation before starting next agent
+                if self.queue_manager and self.queue_manager.is_cancel_requested():
+                    logger.info(f"Cancellation requested, stopping before {agent_name}")
+                    raise asyncio.CancelledError("Pipeline cancelled by user")
+
                 await self._run_agent(agent_name)
 
             await self.progress.pipeline_completed()
@@ -168,7 +179,7 @@ class AsyncPipeline:
         # Use agent factory to create real or placeholder agents
         from app.agents.factory import create_agent
 
-        agent = await create_agent(agent_name, self.session_id)
+        agent = await create_agent(agent_name, self.session_id, queue_manager=self.queue_manager)
         self._agents[agent_name] = agent
         return agent
 
@@ -182,6 +193,13 @@ class AsyncPipeline:
                 select(Session).where(Session.id == self.session_id)
             )
             session = result.scalars().first()
+
+            # For NEW projects: if this agent is the starting point, use session input
+            # This allows starting from agent_2 with user-provided screenplay
+            if agent_name == session.start_agent:
+                logger.info(f"Using session input_data for starting agent: {agent_name} (type: {type(session.input_data).__name__})")
+                logger.debug(f"Session start_agent: {session.start_agent}, Current agent: {agent_name}")
+                return session.input_data
 
             if agent_name == "agent_1":
                 # Agent 1 takes raw input text (string, not dict)

@@ -99,6 +99,11 @@ class CharacterCreatorAgent(AsyncBaseAgent):
         character_images = {}
 
         for idx, (char_name, char_desc) in enumerate(characters.items()):
+            # Check for cancellation before processing each character
+            if self.queue_manager and self.queue_manager.is_cancel_requested():
+                logger.info(f"{self.agent_name}: Cancellation detected, stopping after {len(character_data)} characters")
+                break
+
             try:
                 if progress_callback:
                     await progress_callback(

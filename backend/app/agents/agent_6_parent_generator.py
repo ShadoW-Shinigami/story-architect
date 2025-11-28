@@ -147,6 +147,11 @@ class ParentImageGeneratorAgent(AsyncBaseAgent):
         parent_shots_data = []
 
         for idx, shot_id in enumerate(parent_shot_ids):
+            # Check for cancellation before processing each shot
+            if self.queue_manager and self.queue_manager.is_cancel_requested():
+                logger.info(f"{self.agent_name}: Cancellation detected, stopping after {len(parent_shots_data)} shots")
+                break
+
             try:
                 if progress_callback:
                     await progress_callback(

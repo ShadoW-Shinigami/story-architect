@@ -138,6 +138,11 @@ class ParentVerificationAgent(AsyncBaseAgent):
         verified_shots = []
 
         for idx, parent_shot in enumerate(parent_shots):
+            # Check for cancellation before processing each shot
+            if self.queue_manager and self.queue_manager.is_cancel_requested():
+                logger.info(f"{self.agent_name}: Cancellation detected, stopping after {len(verified_shots)} shots")
+                break
+
             shot_id = parent_shot["shot_id"]
 
             if progress_callback:

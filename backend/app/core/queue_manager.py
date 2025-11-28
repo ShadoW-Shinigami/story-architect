@@ -125,7 +125,7 @@ class QueueManager:
 
             # Create pipeline and progress tracker
             progress_tracker = ProgressTracker(task.session_id)
-            pipeline = AsyncPipeline(task.session_id, progress_tracker)
+            pipeline = AsyncPipeline(task.session_id, progress_tracker, queue_manager=self)
 
             # Run pipeline
             if task.resume_from:

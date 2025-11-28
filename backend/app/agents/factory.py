@@ -110,7 +110,8 @@ class AgentFactory:
         self,
         agent_name: str,
         session_id: str,
-        config_override: Optional[Dict[str, Any]] = None
+        config_override: Optional[Dict[str, Any]] = None,
+        queue_manager: Optional['QueueManager'] = None
     ) -> AsyncBaseAgent:
         """
         Create an agent instance.
@@ -119,6 +120,7 @@ class AgentFactory:
             agent_name: Name of the agent (e.g., "agent_1")
             session_id: Session ID for this execution
             config_override: Optional config overrides
+            queue_manager: Optional queue manager for cancellation checks
 
         Returns:
             Configured agent instance
@@ -133,11 +135,15 @@ class AgentFactory:
             agent_class = AGENT_REGISTRY[agent_name]
             logger.info(f"Creating {agent_name} ({agent_class.__name__})")
 
-            return agent_class(
+            agent = agent_class(
                 session_id=session_id,
                 config=agent_config,
                 gemini_client=self.gemini_client
             )
+            # Store queue_manager reference if provided
+            if queue_manager:
+                agent.queue_manager = queue_manager
+            return agent
         else:
             # Use placeholder for unimplemented agents
             logger.warning(f"Agent {agent_name} not implemented, using placeholder")
@@ -167,7 +173,8 @@ def get_agent_factory() -> AgentFactory:
 async def create_agent(
     agent_name: str,
     session_id: str,
-    config: Optional[Dict[str, Any]] = None
+    config: Optional[Dict[str, Any]] = None,
+    queue_manager: Optional['QueueManager'] = None
 ) -> AsyncBaseAgent:
     """
     Convenience function to create an agent.
@@ -176,9 +183,10 @@ async def create_agent(
         agent_name: Name of the agent
         session_id: Session ID
         config: Optional config overrides
+        queue_manager: Optional queue manager for cancellation checks
 
     Returns:
         Configured agent instance
     """
     factory = get_agent_factory()
-    return factory.create_agent(agent_name, session_id, config)
+    return factory.create_agent(agent_name, session_id, config, queue_manager=queue_manager)

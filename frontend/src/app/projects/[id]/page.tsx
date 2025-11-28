@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { useSession, useStartPipeline, useResumePipeline } from "@/hooks/useSessions";
+import { useSession, useStartPipeline, useResumePipeline, useCancelPipeline } from "@/hooks/useSessions";
 import { useAgentOutputs } from "@/hooks/useAgentOutputs";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { Header } from "@/components/shared/Header";
@@ -19,6 +19,7 @@ import {
   Loader2,
   Calendar,
   Clock,
+  StopCircle,
 } from "lucide-react";
 import { SessionStatus } from "@/types/session";
 
@@ -49,6 +50,7 @@ export default function ProjectDetailPage() {
   const { data: outputs, isLoading: outputsLoading } = useAgentOutputs(sessionId);
   const startPipeline = useStartPipeline();
   const resumePipeline = useResumePipeline();
+  const cancelPipeline = useCancelPipeline();
 
   // State for selected agent in sidebar
   const [selectedAgent, setSelectedAgent] = useState<string | undefined>();
@@ -121,6 +123,14 @@ export default function ProjectDetailPage() {
       });
     } catch (error) {
       console.error("Failed to retry from agent:", error);
+    }
+  };
+
+  const handleCancel = async () => {
+    try {
+      await cancelPipeline.mutateAsync(sessionId);
+    } catch (error) {
+      console.error("Failed to cancel pipeline:", error);
     }
   };
 
@@ -210,6 +220,20 @@ export default function ProjectDetailPage() {
                     <Play className="h-4 w-4 mr-2" />
                   )}
                   Start Pipeline
+                </Button>
+              )}
+              {session.status === "in_progress" && (
+                <Button
+                  variant="destructive"
+                  onClick={handleCancel}
+                  disabled={cancelPipeline.isPending}
+                >
+                  {cancelPipeline.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <StopCircle className="h-4 w-4 mr-2" />
+                  )}
+                  Stop Pipeline
                 </Button>
               )}
               {session.status === "failed" && session.current_agent && (

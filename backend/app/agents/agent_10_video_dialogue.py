@@ -155,6 +155,11 @@ class VideoDialogueGeneratorAgent(AsyncBaseAgent):
         video_outputs = []
 
         for idx, shot_data in enumerate(all_shots):
+            # Check for cancellation before processing each shot
+            if self.queue_manager and self.queue_manager.is_cancel_requested():
+                logger.info(f"{self.agent_name}: Cancellation detected, stopping after {len(video_outputs)} shots")
+                break
+
             shot_id = shot_data["shot_id"]
 
             if progress_callback:
