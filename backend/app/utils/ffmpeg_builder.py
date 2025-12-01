@@ -265,29 +265,35 @@ class AsyncFFmpegBuilder:
         await asyncio.to_thread(_write_concat)
 
         try:
-            if add_fade_transitions and len(video_files) > 1:
-                output = await self._concatenate_with_fades(
-                    video_files,
-                    output_path,
-                    fade_duration
-                )
-            else:
-                cmd = [
-                    self.ffmpeg_path,
-                    "-f", "concat",
-                    "-safe", "0",
-                    "-i", str(concat_file),
-                    "-c:v", self.output_codec,
-                    "-preset", self.output_preset,
-                    "-crf", str(self.output_crf),
-                    "-c:a", self.audio_codec,
-                    "-b:a", self.audio_bitrate,
-                    "-y",
-                    str(output_path)
-                ]
+            # DISABLED: Crossfade transitions between scenes
+            # Reason: Offset calculation was incorrect - crossfades were happening immediately
+            # after the first shot finished instead of at scene boundaries. The offset parameter
+            # in _concatenate_with_fades was hardcoded to 0, causing premature transitions.
+            # TODO: Fix offset calculation to be (previous_video_duration - fade_duration)
+            # if add_fade_transitions and len(video_files) > 1:
+            #     output = await self._concatenate_with_fades(
+            #         video_files,
+            #         output_path,
+            #         fade_duration
+            #     )
+            # else:
 
-                await self._execute_ffmpeg(cmd, f"concatenation of {len(video_files)} videos")
-                output = output_path
+            cmd = [
+                self.ffmpeg_path,
+                "-f", "concat",
+                "-safe", "0",
+                "-i", str(concat_file),
+                "-c:v", self.output_codec,
+                "-preset", self.output_preset,
+                "-crf", str(self.output_crf),
+                "-c:a", self.audio_codec,
+                "-b:a", self.audio_bitrate,
+                "-y",
+                str(output_path)
+            ]
+
+            await self._execute_ffmpeg(cmd, f"concatenation of {len(video_files)} videos")
+            output = output_path
 
             # Clean up
             await asyncio.to_thread(concat_file.unlink)

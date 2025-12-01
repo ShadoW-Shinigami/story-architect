@@ -549,10 +549,12 @@ Return valid JSON:
 
         master_path = self.edit_output_dir / "master_final.mp4"
 
+        # Note: fade parameters are currently ignored - using simple concatenation only
+        # Crossfade logic disabled due to incorrect offset calculation
         await self.ffmpeg_builder.concatenate_simple(
             scene_paths,
             master_path,
-            add_fade_transitions=True,
+            add_fade_transitions=False,  # Disabled - was causing premature crossfades
             fade_duration=self.scene_fade_duration
         )
 
